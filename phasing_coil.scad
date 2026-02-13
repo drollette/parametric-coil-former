@@ -13,6 +13,10 @@ pitch = 8.9;              // 4. Vertical distance between each wrap             
 rib_clearance = 8;        // Solid plastic space at top and bottom for the ribs
 $fn = 60;                 // 3D rendering smoothness
 
+// --- PERFORMANCE TUNING ---
+groove_steps_per_turn = 24;  // Reduce for faster render (24-50), increase for smoother groove
+cylinder_faces = 72;         // Faces for main cylinders (72-100)
+
 // ==========================================
 // --- AUTOMATIC CALCULATIONS (Do not touch) ---
 // ==========================================
@@ -51,26 +55,26 @@ echo("==============================");
 difference() {
     union() {
         // Main Body
-        cylinder(h = total_height, d = cylinder_diam, $fn=100);
+        cylinder(h = total_height, d = cylinder_diam, $fn=cylinder_faces);
         
         // --- Bottom Rib ---
         translate([0, 0, 2]) {
-            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=100);
-            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=100);
-            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=100);
+            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=cylinder_faces);
+            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=cylinder_faces);
+            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=cylinder_faces);
         }
 
         // --- Top Rib (Auto-positions based on calculated height) ---
         translate([0, 0, total_height - 8]) {
-            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=100);
-            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=100);
-            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=100);
+            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=cylinder_faces);
+            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=cylinder_faces);
+            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=cylinder_faces);
         }
     }
 
     // --- 1. Center Void ---
     translate([0, 0, -1])
-        cylinder(h = total_height + 2, d = center_bore_diam, $fn=100);
+        cylinder(h = total_height + 2, d = center_bore_diam, $fn=cylinder_faces);
 
     // --- 2. Flawless 3D V-Groove ---
     translate([0, 0, start_z])
@@ -97,8 +101,7 @@ difference() {
 
 // --- True 3D Sweep Engine ---
 module true_3d_v_groove(h, turns, d, depth) {
-    steps_per_turn = 50; 
-    total_steps = round(turns * steps_per_turn);
+    total_steps = round(turns * groove_steps_per_turn);
     dz = h / total_steps;
     da = -360 * turns / total_steps;
 
