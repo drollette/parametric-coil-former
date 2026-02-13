@@ -40,7 +40,6 @@ pub struct CoilDerived {
     pub cylinder_r: f64,
     pub center_bore_r: f64,
     pub r_wire: f64,
-    pub circumference: f64,
     pub calc_turns: f64,
     pub winding_height: f64,
     pub total_height: f64,
@@ -75,7 +74,6 @@ impl CoilDerived {
             cylinder_r,
             center_bore_r,
             r_wire,
-            circumference,
             calc_turns,
             winding_height,
             total_height,
@@ -115,6 +113,7 @@ impl TriMesh {
     }
 
     /// Number of vertices.
+    #[cfg(test)]
     pub fn vertex_count(&self) -> usize {
         self.positions.len() / 3
     }
