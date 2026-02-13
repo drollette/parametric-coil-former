@@ -1,6 +1,6 @@
 [package]
 name = "wasm-coil-former"
-version = "0.1.1-rc-1"
+version = "0.1.2"
 edition = "2021"
 authors = ["W7HAK"]
 description = "Parametric coil former for ham radio phasing lines – Rust/WASM plugin"
@@ -17,7 +17,7 @@ serde_json = "1"
 js-sys = "0.3"
 
 [dependencies.web-sys]
-version = "0.1.1-rc-1"
+version = "0.1.2"
 features = ["console"]
 
 [dev-dependencies]

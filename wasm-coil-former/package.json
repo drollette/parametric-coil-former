@@ -1,6 +1,6 @@
 {
   "name": "wasm-coil-former",
-  "version": "0.1.1-rc-1",
+  "version": "0.1.2",
   "private": true,
   "description": "Parametric coil former for ham radio – WASM plugin hosted at coil.w7hak.com",
   "scripts": {
