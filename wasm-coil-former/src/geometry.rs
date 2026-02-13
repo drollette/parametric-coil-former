@@ -4,10 +4,8 @@
 //! All units are millimetres.
 //!
 //! The body is built as a single integrated mesh: a hollow cylinder whose
-//! outer radius varies to form the friction-rib profile and the helical
-//! V-groove.  This avoids the CSG boolean operations the OpenSCAD version
-//! relies on and produces a clean manifold mesh for both the 3-D preview
-//! and the downloadable STL.
+//! outer radius varies to form the friction-rib profile, helical V-groove,
+//! and wire entry/exit holes with chamfered edges.
 
 use std::f64::consts::PI;
 
@@ -24,6 +22,9 @@ pub struct CoilParams {
     pub pitch: f64,
     /// Solid space at top & bottom for friction ribs in mm.
     pub rib_clearance: f64,
+    /// Centre bore diameter in mm.  Pass 0 (or negative) for automatic
+    /// sizing (wire_diam + 0.2).
+    pub center_bore_diam: f64,
 }
 
 impl Default for CoilParams {
@@ -34,6 +35,7 @@ impl Default for CoilParams {
             pvc_inner_diam: 22.3,
             pitch: 8.9,
             rib_clearance: 8.0,
+            center_bore_diam: 0.0, // auto
         }
     }
 }
@@ -45,7 +47,6 @@ pub struct CoilDerived {
     pub cylinder_diam: f64,
     pub cylinder_r: f64,
     pub center_bore_r: f64,
-    #[allow(dead_code)]
     pub r_wire: f64,
     pub calc_turns: f64,
     pub winding_height: f64,
@@ -55,6 +56,10 @@ pub struct CoilDerived {
     pub chamfer_h: f64,
     pub v_depth: f64,
     pub pitch: f64,
+    /// Entry-hole angle (always 0).
+    pub entry_angle: f64,
+    /// Exit-hole angle, normalised to [0, 2π).
+    pub exit_angle: f64,
 }
 
 impl CoilDerived {
@@ -62,7 +67,12 @@ impl CoilDerived {
         let rib_diam = p.pvc_inner_diam;
         let cylinder_diam = rib_diam - p.wire_diam;
         let cylinder_r = cylinder_diam / 2.0;
-        let center_bore_r = (p.wire_diam + 0.2) / 2.0;
+        let center_bore_diam = if p.center_bore_diam > 0.0 {
+            p.center_bore_diam
+        } else {
+            p.wire_diam + 0.2
+        };
+        let center_bore_r = center_bore_diam / 2.0;
         let r_wire = p.wire_diam / 2.0;
 
         let circumference = PI * cylinder_diam;
@@ -75,6 +85,9 @@ impl CoilDerived {
         let end_z = start_z + winding_height;
         let chamfer_h = (rib_diam - cylinder_diam) / 2.0;
         let v_depth = r_wire * std::f64::consts::SQRT_2;
+
+        let entry_angle = 0.0;
+        let exit_angle = ((-2.0 * PI * calc_turns) % (2.0 * PI) + 2.0 * PI) % (2.0 * PI);
 
         Self {
             rib_diam,
@@ -90,6 +103,8 @@ impl CoilDerived {
             chamfer_h,
             v_depth,
             pitch: p.pitch,
+            entry_angle,
+            exit_angle,
         }
     }
 }
@@ -145,7 +160,6 @@ pub fn make_cylinder(radius: f64, height: f64, segments: u32) -> TriMesh {
             mesh.positions.push(z as f32);
         }
     }
-    // cap centres
     mesh.positions.extend_from_slice(&[0.0, 0.0, 0.0]);
     mesh.positions.extend_from_slice(&[0.0, 0.0, height as f32]);
 
@@ -159,14 +173,9 @@ pub fn make_cylinder(radius: f64, height: f64, segments: u32) -> TriMesh {
         let t0 = (segs + i) as u32;
         let t1 = (segs + next) as u32;
 
-        // side quad – outward-facing normals
         mesh.indices.extend_from_slice(&[b0, b1, t0]);
         mesh.indices.extend_from_slice(&[b1, t1, t0]);
-
-        // bottom cap
         mesh.indices.extend_from_slice(&[bot_center, b0, b1]);
-
-        // top cap
         mesh.indices.extend_from_slice(&[top_center, t1, t0]);
     }
 
@@ -200,9 +209,6 @@ pub fn rotate_z(mesh: &mut TriMesh, angle_rad: f32) {
 const SEGMENTS: u32 = 64;
 
 /// Build the complete coil former mesh from parameters.
-///
-/// Produces a single integrated hollow cylinder whose outer surface
-/// incorporates the friction-rib profile and helical V-groove.
 pub fn build_coil_former(params: &CoilParams) -> (TriMesh, CoilDerived) {
     let d = CoilDerived::from_params(params);
     let mesh = build_body(&d);
@@ -294,29 +300,20 @@ fn rib_radius_at(d: &CoilDerived, z: f64) -> f64 {
 }
 
 /// V-groove depth at a surface point `(z, theta)`.
-///
-/// Uses the perpendicular distance from the point to the nearest helix
-/// pass to determine whether the point lies inside the groove.
 fn groove_depth_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
     if z < d.start_z || z > d.end_z {
         return 0.0;
     }
 
-    // On the unwrapped cylinder surface the helix lines are straight and
-    // spaced one pitch apart.  At angle θ the nearest groove centre is at
-    // z = start_z + (−θ/(2π) + n)·pitch for some integer n.
-    // Rearranging: (z − start_z + θ·pitch/(2π)) / pitch = n.
     let q = (z - d.start_z) / d.pitch + theta / (2.0 * PI);
-    let z_mod = q.rem_euclid(1.0); // fractional part in [0, 1)
+    let z_mod = q.rem_euclid(1.0);
     let dz_frac = if z_mod <= 0.5 { z_mod } else { 1.0 - z_mod };
-    let dz = dz_frac * d.pitch; // z-distance to nearest groove centre
+    let dz = dz_frac * d.pitch;
 
-    // Correct for helix angle to get true perpendicular distance
     let circ = 2.0 * PI * d.cylinder_r;
     let cos_alpha = circ / (circ * circ + d.pitch * d.pitch).sqrt();
     let d_perp = dz * cos_alpha;
 
-    // 90° V-groove profile: linear ramp, depth = v_depth at centre
     if d_perp < d.v_depth {
         d.v_depth - d_perp
     } else {
@@ -324,11 +321,66 @@ fn groove_depth_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
     }
 }
 
-/// Combined outer radius at `(z, theta)` including rib profile and groove.
+// ─── Wire entry/exit holes ─────────────────────────────────────────
+
+/// Shortest angular distance on a circle, result in [0, π].
+fn angle_distance(a: f64, b: f64) -> f64 {
+    let mut d = (a - b) % (2.0 * PI);
+    if d > PI {
+        d -= 2.0 * PI;
+    }
+    if d < -PI {
+        d += 2.0 * PI;
+    }
+    d.abs()
+}
+
+/// Euclidean distance on the cylinder surface between two (z, θ) points.
+fn surface_dist(d: &CoilDerived, z1: f64, theta1: f64, z2: f64, theta2: f64) -> f64 {
+    let dz = z1 - z2;
+    let arc = angle_distance(theta1, theta2) * d.cylinder_r;
+    (dz * dz + arc * arc).sqrt()
+}
+
+/// Blend factor for wire entry/exit holes.
+///
+/// Returns 1.0 inside the hole, smooth cosine taper through the chamfer
+/// zone, and 0.0 outside.  When > 0 the outer radius is blended toward
+/// the centre-bore radius.
+fn hole_factor_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
+    let hole_r = d.r_wire + 0.1; // slight clearance around wire
+    let chamfer = d.r_wire * 0.8; // chamfer width
+
+    let entry_dist = surface_dist(d, z, theta, d.start_z, d.entry_angle);
+    let exit_dist = surface_dist(d, z, theta, d.end_z, d.exit_angle);
+    let min_dist = entry_dist.min(exit_dist);
+
+    if min_dist <= hole_r {
+        1.0
+    } else if min_dist < hole_r + chamfer {
+        let t = (min_dist - hole_r) / chamfer;
+        // Smooth cosine blend from 1 → 0
+        0.5 * (1.0 + (PI * t).cos())
+    } else {
+        0.0
+    }
+}
+
+// ─── Combined radius ───────────────────────────────────────────────
+
+/// Combined outer radius at `(z, theta)` including rib profile, groove,
+/// and wire holes with chamfer.
 fn radius_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
     let base_r = rib_radius_at(d, z);
     let groove = groove_depth_at(d, z, theta);
-    (base_r - groove).max(d.center_bore_r + 0.1)
+    let r_grooved = base_r - groove;
+
+    let hole = hole_factor_at(d, z, theta);
+    if hole > 0.0 {
+        lerp(r_grooved, d.center_bore_r, hole).max(d.center_bore_r)
+    } else {
+        r_grooved.max(d.center_bore_r + 0.1)
+    }
 }
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
@@ -336,10 +388,6 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 }
 
 /// Build the complete body as a single hollow mesh.
-///
-/// Outer surface: cylinder with rib profile and V-groove displacement.
-/// Inner surface: constant centre-bore radius.
-/// End caps: annular rings connecting outer ↔ inner.
 fn build_body(d: &CoilDerived) -> TriMesh {
     let n_around = SEGMENTS as usize;
     let z_levels = compute_z_levels(d);
@@ -348,7 +396,7 @@ fn build_body(d: &CoilDerived) -> TriMesh {
 
     let mut mesh = TriMesh::new();
 
-    // ── Outer surface vertices: [0 .. n_z * n_around) ──
+    // ── Outer surface vertices ──
     for &z in &z_levels {
         for i in 0..n_around {
             let theta = 2.0 * PI * (i as f64) / (n_around as f64);
@@ -359,7 +407,7 @@ fn build_body(d: &CoilDerived) -> TriMesh {
         }
     }
 
-    // ── Inner surface vertices: [n_z*n_around .. 2*n_z*n_around) ──
+    // ── Inner surface vertices ──
     let inner_offset = n_z * n_around;
     for &z in &z_levels {
         for i in 0..n_around {
@@ -396,7 +444,7 @@ fn build_body(d: &CoilDerived) -> TriMesh {
         }
     }
 
-    // ── Bottom annular cap (normal pointing down, −z) ──
+    // ── Bottom annular cap (−z) ──
     for i in 0..n_around {
         let ni = (i + 1) % n_around;
         let o0 = i as u32;
@@ -407,7 +455,7 @@ fn build_body(d: &CoilDerived) -> TriMesh {
         mesh.indices.extend_from_slice(&[o1, i0, i1]);
     }
 
-    // ── Top annular cap (normal pointing up, +z) ──
+    // ── Top annular cap (+z) ──
     let outer_top = (n_z - 1) * n_around;
     let inner_top = inner_offset + (n_z - 1) * n_around;
     for i in 0..n_around {
@@ -425,7 +473,6 @@ fn build_body(d: &CoilDerived) -> TriMesh {
 
 // ─── STL export ────────────────────────────────────────────────────
 
-/// Compute a face normal from three vertices (positions slice, indices).
 fn face_normal(p: &[f32], i0: u32, i1: u32, i2: u32) -> [f32; 3] {
     let (i0, i1, i2) = (i0 as usize * 3, i1 as usize * 3, i2 as usize * 3);
     let ux = p[i1] - p[i0];
@@ -449,17 +496,13 @@ fn face_normal(p: &[f32], i0: u32, i1: u32, i2: u32) -> [f32; 3] {
 /// Encode the mesh as a **binary STL** byte buffer.
 pub fn to_binary_stl(mesh: &TriMesh) -> Vec<u8> {
     let tri_count = mesh.indices.len() / 3;
-    // 80-byte header + 4-byte tri count + 50 bytes per triangle
     let size = 80 + 4 + tri_count * 50;
     let mut buf = Vec::with_capacity(size);
 
-    // Header (80 bytes)
     let mut header = [0u8; 80];
     let label = b"Binary STL - W7HAK Coil Former";
     header[..label.len()].copy_from_slice(label);
     buf.extend_from_slice(&header);
-
-    // Triangle count
     buf.extend_from_slice(&(tri_count as u32).to_le_bytes());
 
     for t in 0..tri_count {
@@ -468,21 +511,16 @@ pub fn to_binary_stl(mesh: &TriMesh) -> Vec<u8> {
         let i2 = mesh.indices[t * 3 + 2];
 
         let n = face_normal(&mesh.positions, i0, i1, i2);
-
-        // normal
         buf.extend_from_slice(&n[0].to_le_bytes());
         buf.extend_from_slice(&n[1].to_le_bytes());
         buf.extend_from_slice(&n[2].to_le_bytes());
 
-        // vertices
         for idx in [i0, i1, i2] {
             let base = idx as usize * 3;
             buf.extend_from_slice(&mesh.positions[base].to_le_bytes());
             buf.extend_from_slice(&mesh.positions[base + 1].to_le_bytes());
             buf.extend_from_slice(&mesh.positions[base + 2].to_le_bytes());
         }
-
-        // attribute byte count
         buf.extend_from_slice(&0u16.to_le_bytes());
     }
 
@@ -502,6 +540,24 @@ mod tests {
         assert!((d.cylinder_diam - 19.1).abs() < 1e-6);
         assert!(d.calc_turns > 10.0);
         assert!(d.total_height > 0.0);
+    }
+
+    #[test]
+    fn test_custom_bore_diameter() {
+        let p = CoilParams {
+            center_bore_diam: 5.0,
+            ..CoilParams::default()
+        };
+        let d = CoilDerived::from_params(&p);
+        assert!((d.center_bore_r - 2.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_auto_bore_diameter() {
+        let p = CoilParams::default(); // center_bore_diam = 0 → auto
+        let d = CoilDerived::from_params(&p);
+        let expected = (3.2 + 0.2) / 2.0; // (wire_diam + 0.2) / 2
+        assert!((d.center_bore_r - expected).abs() < 1e-6);
     }
 
     #[test]
@@ -540,7 +596,6 @@ mod tests {
     fn test_groove_depth_max_on_helix() {
         let p = CoilParams::default();
         let d = CoilDerived::from_params(&p);
-        // On the helix centreline at z = start_z, theta = 0
         let depth = groove_depth_at(&d, d.start_z, 0.0);
         assert!((depth - d.v_depth).abs() < 0.01);
     }
@@ -549,7 +604,6 @@ mod tests {
     fn test_rib_radius_at_cylinder() {
         let p = CoilParams::default();
         let d = CoilDerived::from_params(&p);
-        // Outside rib zones → cylinder_r
         assert!((rib_radius_at(&d, 0.0) - d.cylinder_r).abs() < 1e-6);
         assert!((rib_radius_at(&d, d.total_height) - d.cylinder_r).abs() < 1e-6);
     }
@@ -559,8 +613,25 @@ mod tests {
         let p = CoilParams::default();
         let d = CoilDerived::from_params(&p);
         let rib_r = d.rib_diam / 2.0;
-        // Middle of bottom rib flat band
         let z_mid = 2.0 + d.chamfer_h + 1.0;
         assert!((rib_radius_at(&d, z_mid) - rib_r).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_hole_factor_at_entry() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        // Exactly at entry point → factor = 1.0
+        let f = hole_factor_at(&d, d.start_z, d.entry_angle);
+        assert!((f - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_hole_factor_far_away() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        // Middle of coil, opposite side → factor ≈ 0
+        let f = hole_factor_at(&d, d.total_height / 2.0, PI);
+        assert!(f < 0.01);
     }
 }

@@ -34,9 +34,25 @@ pub struct CoilResult {
     pub cylinder_diam: f64,
 }
 
+fn make_params(
+    wire_len: f64,
+    wire_diam: f64,
+    pvc_inner_diam: f64,
+    pitch: f64,
+    rib_clearance: f64,
+    center_bore_diam: f64,
+) -> CoilParams {
+    CoilParams {
+        wire_len,
+        wire_diam,
+        pvc_inner_diam,
+        pitch,
+        rib_clearance,
+        center_bore_diam,
+    }
+}
+
 /// Generate the coil former mesh and return the result as a JSON string.
-///
-/// Called from JavaScript with the five user-facing parameters.
 #[wasm_bindgen]
 pub fn generate_coil(
     wire_len: f64,
@@ -44,14 +60,16 @@ pub fn generate_coil(
     pvc_inner_diam: f64,
     pitch: f64,
     rib_clearance: f64,
+    center_bore_diam: f64,
 ) -> String {
-    let params = CoilParams {
+    let params = make_params(
         wire_len,
         wire_diam,
         pvc_inner_diam,
         pitch,
         rib_clearance,
-    };
+        center_bore_diam,
+    );
 
     let (mesh, derived) = build_coil_former(&params);
 
@@ -75,21 +93,22 @@ pub fn export_stl(
     pvc_inner_diam: f64,
     pitch: f64,
     rib_clearance: f64,
+    center_bore_diam: f64,
 ) -> Vec<u8> {
-    let params = CoilParams {
+    let params = make_params(
         wire_len,
         wire_diam,
         pvc_inner_diam,
         pitch,
         rib_clearance,
-    };
+        center_bore_diam,
+    );
 
     let (mesh, _) = build_coil_former(&params);
     to_binary_stl(&mesh)
 }
 
 /// Return only the computed dimensions as JSON (no mesh data).
-/// Useful for a lightweight info panel update without re-rendering.
 #[wasm_bindgen]
 pub fn compute_info(
     wire_len: f64,
@@ -97,14 +116,16 @@ pub fn compute_info(
     pvc_inner_diam: f64,
     pitch: f64,
     rib_clearance: f64,
+    center_bore_diam: f64,
 ) -> String {
-    let params = CoilParams {
+    let params = make_params(
         wire_len,
         wire_diam,
         pvc_inner_diam,
         pitch,
         rib_clearance,
-    };
+        center_bore_diam,
+    );
     let d = CoilDerived::from_params(&params);
 
     serde_json::json!({

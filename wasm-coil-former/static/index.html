@@ -114,17 +114,55 @@
       font-size: 0.75rem;
     }
 
-    .control-group input[type="range"] {
-      width: 100%;
-      accent-color: var(--highlight);
-      margin-bottom: 4px;
+    .control-group .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .control-group .value-display {
-      text-align: right;
-      font-size: 0.8rem;
+    .control-group input[type="range"] {
+      flex: 1;
+      accent-color: var(--highlight);
+    }
+
+    .control-group input[type="number"] {
+      width: 72px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
       color: var(--highlight);
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
+      text-align: right;
+      -moz-appearance: textfield;
+    }
+
+    .control-group input[type="number"]::-webkit-inner-spin-button,
+    .control-group input[type="number"]::-webkit-outer-spin-button {
+      opacity: 1;
+    }
+
+    .control-group input[type="number"]:focus {
+      outline: 1px solid var(--highlight);
+      border-color: var(--highlight);
+    }
+
+    /* Checkbox row for bore lock */
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      margin-bottom: 6px;
+      color: var(--text-dim);
+    }
+
+    .check-row input[type="checkbox"] {
+      accent-color: var(--highlight);
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
     }
 
     /* Info panel */
@@ -291,32 +329,54 @@
 
       <div class="control-group">
         <label>Wire Length <span class="unit">mm</span></label>
-        <input type="range" id="wire_len" min="50" max="2000" step="1" value="668">
-        <div class="value-display" id="wire_len_val">668</div>
+        <div class="slider-row">
+          <input type="range" id="wire_len" min="50" max="2000" step="1" value="668">
+          <input type="number" id="wire_len_num" min="50" max="2000" step="1" value="668">
+        </div>
       </div>
 
       <div class="control-group">
         <label>Wire Diameter <span class="unit">mm</span></label>
-        <input type="range" id="wire_diam" min="0.5" max="6.0" step="0.1" value="3.2">
-        <div class="value-display" id="wire_diam_val">3.2</div>
+        <div class="slider-row">
+          <input type="range" id="wire_diam" min="0.5" max="6.0" step="0.1" value="3.2">
+          <input type="number" id="wire_diam_num" min="0.5" max="6.0" step="0.1" value="3.2">
+        </div>
       </div>
 
       <div class="control-group">
         <label>PVC Inner Diameter <span class="unit">mm</span></label>
-        <input type="range" id="pvc_inner_diam" min="10" max="80" step="0.1" value="22.3">
-        <div class="value-display" id="pvc_inner_diam_val">22.3</div>
+        <div class="slider-row">
+          <input type="range" id="pvc_inner_diam" min="10" max="80" step="0.1" value="22.3">
+          <input type="number" id="pvc_inner_diam_num" min="10" max="80" step="0.1" value="22.3">
+        </div>
       </div>
 
       <div class="control-group">
         <label>Pitch <span class="unit">mm</span></label>
-        <input type="range" id="pitch" min="2.0" max="25.0" step="0.1" value="8.9">
-        <div class="value-display" id="pitch_val">8.9</div>
+        <div class="slider-row">
+          <input type="range" id="pitch" min="2.0" max="25.0" step="0.1" value="8.9">
+          <input type="number" id="pitch_num" min="2.0" max="25.0" step="0.1" value="8.9">
+        </div>
       </div>
 
       <div class="control-group">
         <label>Rib Clearance <span class="unit">mm</span></label>
-        <input type="range" id="rib_clearance" min="2" max="20" step="0.5" value="8">
-        <div class="value-display" id="rib_clearance_val">8.0</div>
+        <div class="slider-row">
+          <input type="range" id="rib_clearance" min="2" max="20" step="0.5" value="8">
+          <input type="number" id="rib_clearance_num" min="2" max="20" step="0.5" value="8">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Center Bore Diameter <span class="unit">mm</span></label>
+        <div class="check-row">
+          <input type="checkbox" id="bore_lock" checked>
+          <label for="bore_lock">Same as wire diameter</label>
+        </div>
+        <div class="slider-row" id="bore_slider_row" style="opacity: 0.4; pointer-events: none;">
+          <input type="range" id="center_bore_diam" min="1.0" max="20.0" step="0.1" value="3.2">
+          <input type="number" id="center_bore_diam_num" min="1.0" max="20.0" step="0.1" value="3.2">
+        </div>
       </div>
 
       <div class="info-panel">
@@ -438,20 +498,38 @@
 
     // ── Coil rebuild ─────────────────────────────────────────
     function getParams() {
+      const boreLocked = document.getElementById('bore_lock').checked;
+      const wireDiam = parseFloat(document.getElementById('wire_diam').value);
       return {
-        wire_len:       parseFloat(document.getElementById('wire_len').value),
-        wire_diam:      parseFloat(document.getElementById('wire_diam').value),
-        pvc_inner_diam: parseFloat(document.getElementById('pvc_inner_diam').value),
-        pitch:          parseFloat(document.getElementById('pitch').value),
-        rib_clearance:  parseFloat(document.getElementById('rib_clearance').value),
+        wire_len:         parseFloat(document.getElementById('wire_len').value),
+        wire_diam:        wireDiam,
+        pvc_inner_diam:   parseFloat(document.getElementById('pvc_inner_diam').value),
+        pitch:            parseFloat(document.getElementById('pitch').value),
+        rib_clearance:    parseFloat(document.getElementById('rib_clearance').value),
+        center_bore_diam: boreLocked ? 0 : parseFloat(document.getElementById('center_bore_diam').value),
       };
+    }
+
+    function updateInfo(p) {
+      if (!wasmReady) return;
+      const info = JSON.parse(compute_info(
+        p.wire_len, p.wire_diam, p.pvc_inner_diam,
+        p.pitch, p.rib_clearance, p.center_bore_diam
+      ));
+      document.getElementById('info-turns').textContent  = info.turns.toFixed(2);
+      document.getElementById('info-coil-h').textContent = info.coil_height.toFixed(1) + ' mm';
+      document.getElementById('info-total-h').textContent = info.total_height.toFixed(1) + ' mm';
+      document.getElementById('info-cyl-d').textContent  = info.cylinder_diam.toFixed(1) + ' mm';
     }
 
     function rebuildCoil() {
       if (!wasmReady) return;
       const p = getParams();
 
-      const json = generate_coil(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance);
+      const json = generate_coil(
+        p.wire_len, p.wire_diam, p.pvc_inner_diam,
+        p.pitch, p.rib_clearance, p.center_bore_diam
+      );
       const data = JSON.parse(json);
 
       if (data.error) {
@@ -461,9 +539,9 @@
 
       // Update info panel
       document.getElementById('info-turns').textContent  = data.turns.toFixed(2);
-      document.getElementById('info-coil-h').textContent  = data.coil_height.toFixed(1) + ' mm';
+      document.getElementById('info-coil-h').textContent = data.coil_height.toFixed(1) + ' mm';
       document.getElementById('info-total-h').textContent = data.total_height.toFixed(1) + ' mm';
-      document.getElementById('info-cyl-d').textContent   = data.cylinder_diam.toFixed(1) + ' mm';
+      document.getElementById('info-cyl-d').textContent  = data.cylinder_diam.toFixed(1) + ' mm';
 
       // Build Three.js geometry
       if (coilMesh) {
@@ -485,42 +563,86 @@
       });
 
       coilMesh = new THREE.Mesh(geom, mat);
-      // Centre the model vertically
       coilMesh.position.y = 0;
       scene.add(coilMesh);
     }
 
-    // ── Slider wiring ────────────────────────────────────────
-    const sliders = ['wire_len', 'wire_diam', 'pvc_inner_diam', 'pitch', 'rib_clearance'];
+    // ── Slider + number input wiring ─────────────────────────
+    const paramIds = ['wire_len', 'wire_diam', 'pvc_inner_diam', 'pitch', 'rib_clearance', 'center_bore_diam'];
     let rebuildTimeout = null;
 
-    sliders.forEach(id => {
-      const el = document.getElementById(id);
-      const valEl = document.getElementById(id + '_val');
+    function onParamChange() {
+      updateInfo(getParams());
+      clearTimeout(rebuildTimeout);
+      rebuildTimeout = setTimeout(rebuildCoil, 150);
+    }
 
-      el.addEventListener('input', () => {
-        valEl.textContent = parseFloat(el.value).toFixed(
-          id === 'wire_len' ? 0 : 1
-        );
-        // Debounce mesh rebuild (info is cheap, mesh is heavier)
-        if (wasmReady) {
-          const p = getParams();
-          const info = JSON.parse(compute_info(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance));
-          document.getElementById('info-turns').textContent  = info.turns.toFixed(2);
-          document.getElementById('info-coil-h').textContent  = info.coil_height.toFixed(1) + ' mm';
-          document.getElementById('info-total-h').textContent = info.total_height.toFixed(1) + ' mm';
-          document.getElementById('info-cyl-d').textContent   = info.cylinder_diam.toFixed(1) + ' mm';
-        }
-        clearTimeout(rebuildTimeout);
-        rebuildTimeout = setTimeout(rebuildCoil, 150);
+    paramIds.forEach(id => {
+      const slider = document.getElementById(id);
+      const numInput = document.getElementById(id + '_num');
+
+      // Slider → number input sync
+      slider.addEventListener('input', () => {
+        numInput.value = slider.value;
+        onParamChange();
       });
+
+      // Number input → slider sync
+      numInput.addEventListener('input', () => {
+        const v = parseFloat(numInput.value);
+        if (!isNaN(v)) {
+          slider.value = v;
+          onParamChange();
+        }
+      });
+    });
+
+    // ── Center bore checkbox logic ───────────────────────────
+    const boreLockEl = document.getElementById('bore_lock');
+    const boreRow = document.getElementById('bore_slider_row');
+    const boreSlider = document.getElementById('center_bore_diam');
+    const boreNum = document.getElementById('center_bore_diam_num');
+
+    function syncBoreLock() {
+      const locked = boreLockEl.checked;
+      boreRow.style.opacity = locked ? '0.4' : '1';
+      boreRow.style.pointerEvents = locked ? 'none' : 'auto';
+      if (locked) {
+        const wd = parseFloat(document.getElementById('wire_diam').value);
+        boreSlider.value = wd;
+        boreNum.value = wd;
+      }
+      onParamChange();
+    }
+
+    boreLockEl.addEventListener('change', syncBoreLock);
+
+    // Keep bore in sync when wire diameter changes and bore is locked
+    document.getElementById('wire_diam').addEventListener('input', () => {
+      if (boreLockEl.checked) {
+        const wd = parseFloat(document.getElementById('wire_diam').value);
+        boreSlider.value = wd;
+        boreNum.value = wd;
+      }
+    });
+    document.getElementById('wire_diam_num').addEventListener('input', () => {
+      if (boreLockEl.checked) {
+        const wd = parseFloat(document.getElementById('wire_diam_num').value);
+        if (!isNaN(wd)) {
+          boreSlider.value = wd;
+          boreNum.value = wd;
+        }
+      }
     });
 
     // ── STL download ─────────────────────────────────────────
     document.getElementById('btn-download').addEventListener('click', () => {
       if (!wasmReady) return;
       const p = getParams();
-      const stlBytes = export_stl(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance);
+      const stlBytes = export_stl(
+        p.wire_len, p.wire_diam, p.pvc_inner_diam,
+        p.pitch, p.rib_clearance, p.center_bore_diam
+      );
       const blob = new Blob([stlBytes], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -531,13 +653,17 @@
     });
 
     // ── Reset defaults ───────────────────────────────────────
-    const defaults = { wire_len: 668, wire_diam: 3.2, pvc_inner_diam: 22.3, pitch: 8.9, rib_clearance: 8 };
+    const defaults = {
+      wire_len: 668, wire_diam: 3.2, pvc_inner_diam: 22.3,
+      pitch: 8.9, rib_clearance: 8, center_bore_diam: 3.2
+    };
     document.getElementById('btn-reset').addEventListener('click', () => {
       Object.entries(defaults).forEach(([id, val]) => {
         document.getElementById(id).value = val;
-        document.getElementById(id + '_val').textContent =
-          id === 'wire_len' ? val.toFixed(0) : val.toFixed(1);
+        document.getElementById(id + '_num').value = val;
       });
+      boreLockEl.checked = true;
+      syncBoreLock();
       rebuildCoil();
     });
   </script>
