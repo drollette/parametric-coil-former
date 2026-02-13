@@ -23,6 +23,8 @@ jobs:
   bump:
     name: Bump version & tag
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,9 +80,21 @@ jobs:
           git tag "v${{ steps.next.outputs.version }}"
           git push origin HEAD --tags
 
+      - name: Set tag output
+        id: tag
+        run: echo "tag=v${{ steps.next.outputs.version }}" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         run: |
           echo "### Version bumped" >> "$GITHUB_STEP_SUMMARY"
           echo "- **From:** ${{ steps.current.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **To:** ${{ steps.next.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Tag:** v${{ steps.next.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Release
+    needs: bump
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
+    secrets: inherit

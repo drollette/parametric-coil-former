@@ -5,12 +5,24 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The version tag (e.g. v0.1.1-rc-1)'
+        required: true
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build-and-release:
@@ -21,10 +33,12 @@ jobs:
         working-directory: wasm-coil-former
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Validate tag matches Cargo.toml version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "Tag version:   $TAG_VERSION"
           echo "Cargo version: $CARGO_VERSION"
@@ -67,17 +81,18 @@ jobs:
       - name: Create release archive
         run: |
           cd dist
-          tar czf ../coil-former-${{ github.ref_name }}.tar.gz .
+          tar czf ../coil-former-${{ env.RELEASE_TAG }}.tar.gz .
           cd ..
-          sha256sum coil-former-${{ github.ref_name }}.tar.gz > coil-former-${{ github.ref_name }}.tar.gz.sha256
+          sha256sum coil-former-${{ env.RELEASE_TAG }}.tar.gz > coil-former-${{ env.RELEASE_TAG }}.tar.gz.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
-            wasm-coil-former/coil-former-${{ github.ref_name }}.tar.gz
-            wasm-coil-former/coil-former-${{ github.ref_name }}.tar.gz.sha256
+            wasm-coil-former/coil-former-${{ env.RELEASE_TAG }}.tar.gz
+            wasm-coil-former/coil-former-${{ env.RELEASE_TAG }}.tar.gz.sha256
 
   deploy:
     name: Deploy to Cloudflare Pages
@@ -88,6 +103,8 @@ jobs:
         working-directory: wasm-coil-former
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
