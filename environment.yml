@@ -6,3 +6,4 @@ dependencies:
   - cadquery
   - jupyter-cadquery
   - ipympl
+  - ipywidgets
