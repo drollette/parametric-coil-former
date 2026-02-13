@@ -163,27 +163,24 @@ jobs:
             wasm-coil-former/coil-hak-${{ env.RELEASE_TAG }}.tar.gz.sha256
 
   deploy:
-    name: Deploy to Cloudflare Pages
+    name: Deploy to Cloudflare Workers
     needs: build-and-release
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: wasm-coil-former/wrangler.toml
+
       - name: Download dist artifact
         uses: actions/download-artifact@v4
         with:
           name: coil-former-dist
-          path: dist
+          path: wasm-coil-former/dist
 
-      - name: Create Pages project (if needed)
-        uses: cloudflare/wrangler-action@v3
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages project create coil-hak --production-branch main
-
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=coil-hak
+          workingDirectory: wasm-coil-former
+          command: deploy
