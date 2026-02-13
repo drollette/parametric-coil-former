@@ -81,9 +81,9 @@ jobs:
       - name: Create release archive
         run: |
           cd dist
-          tar czf ../coil-former-${{ env.RELEASE_TAG }}.tar.gz .
+          tar czf ../coil-hak-${{ env.RELEASE_TAG }}.tar.gz .
           cd ..
-          sha256sum coil-former-${{ env.RELEASE_TAG }}.tar.gz > coil-former-${{ env.RELEASE_TAG }}.tar.gz.sha256
+          sha256sum coil-hak-${{ env.RELEASE_TAG }}.tar.gz > coil-hak-${{ env.RELEASE_TAG }}.tar.gz.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -91,8 +91,8 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
-            wasm-coil-former/coil-former-${{ env.RELEASE_TAG }}.tar.gz
-            wasm-coil-former/coil-former-${{ env.RELEASE_TAG }}.tar.gz.sha256
+            wasm-coil-former/coil-hak-${{ env.RELEASE_TAG }}.tar.gz
+            wasm-coil-former/coil-hak-${{ env.RELEASE_TAG }}.tar.gz.sha256
 
   deploy:
     name: Deploy to Cloudflare Pages
@@ -129,5 +129,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=coil-former
+          command: pages deploy dist --project-name=coil-hak
           workingDirectory: wasm-coil-former

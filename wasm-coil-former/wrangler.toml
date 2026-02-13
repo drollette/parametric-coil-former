@@ -1,13 +1,10 @@
-name = "coil-former"
-main = "build/worker.js"
+name = "coil-hak"
 compatibility_date = "2024-12-01"
+pages_build_output_dir = "./dist"
 
 routes = [
   { pattern = "coil.w7hak.com/*", zone_name = "w7hak.com" }
 ]
-
-[site]
-bucket = "./dist"
 
 [build]
 command = "npm run build"
