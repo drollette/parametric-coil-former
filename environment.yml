@@ -4,6 +4,8 @@ channels:
 dependencies:
   - python=3.10
   - cadquery
-  - jupyter-cadquery
   - ipympl
   - ipywidgets
+  - pip
+  - pip:
+    - jupyter-cadquery
