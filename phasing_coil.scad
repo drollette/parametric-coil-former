@@ -3,19 +3,15 @@
 
 // ==========================================
 // --- MAIN USER INPUTS (CONTROL PANEL) ---
-// ==========================================                                           --- ORIGINAL VALUES
-wire_len = 668;           // 1. Target wire length (Electrical phase length)            --- 668
-wire_diam = 3.2;          // 2. Wire diameter (e.g., 3.2 for RG58 core, 1.6 for bare)   --- 3.2
-pvc_inner_diam = 23.3;    // 3. Exact inside diameter of your PVC pipe                  --- 23.3            
-pitch = 8.9;              // 4. Vertical distance between each wrap                     --- 8.9
+// ==========================================
+wire_len = 668;           // 1. Target wire length (Electrical phase length)
+wire_diam = 3.2;          // 2. Wire diameter (e.g., 3.2 for RG58 core, 1.6 for bare)
+pvc_inner_diam = 22.3;    // 3. Exact inside diameter of your PVC pipe
+pitch = 8.9;              // 4. Vertical distance between each wrap
 
 // --- SECONDARY SETTINGS ---
 rib_clearance = 8;        // Solid plastic space at top and bottom for the ribs
 $fn = 60;                 // 3D rendering smoothness
-
-// --- PERFORMANCE TUNING ---
-groove_steps_per_turn = 24;  // Reduce for faster render (24-50), increase for smoother groove
-cylinder_faces = 72;         // Faces for main cylinders (72-100)
 
 // ==========================================
 // --- AUTOMATIC CALCULATIONS (Do not touch) ---
@@ -55,34 +51,34 @@ echo("==============================");
 difference() {
     union() {
         // Main Body
-        cylinder(h = total_height, d = cylinder_diam, $fn=cylinder_faces);
+        cylinder(h = total_height, d = cylinder_diam, $fn=100);
         
         // --- Bottom Rib ---
         translate([0, 0, 2]) {
-            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=cylinder_faces);
-            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=cylinder_faces);
-            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=cylinder_faces);
+            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=100);
+            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=100);
+            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=100);
         }
 
         // --- Top Rib (Auto-positions based on calculated height) ---
         translate([0, 0, total_height - 8]) {
-            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=cylinder_faces);
-            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=cylinder_faces);
-            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=cylinder_faces);
+            cylinder(h = chamfer_h, d1 = cylinder_diam, d2 = rib_diam, $fn=100);
+            translate([0, 0, chamfer_h]) cylinder(h = 2, d = rib_diam, $fn=100);
+            translate([0, 0, chamfer_h + 2]) cylinder(h = chamfer_h, d1 = rib_diam, d2 = cylinder_diam, $fn=100);
         }
     }
 
     // --- 1. Center Void ---
     translate([0, 0, -1])
-        cylinder(h = total_height + 2, d = center_bore_diam, $fn=cylinder_faces);
+        cylinder(h = total_height + 2, d = center_bore_diam, $fn=100);
 
     // --- 2. Flawless 3D V-Groove ---
     translate([0, 0, start_z])
         true_3d_v_groove(h=wh, turns=calc_turns, d=cylinder_diam, depth=v_tip_depth);
 
-    // --- 3. Swept Entry/Exit Tunnels ---
+    //  -- 3. Swept Entry/Exit Tunnels ---
     hull() {
-        translate([0, 0, start_z - 4]) sphere(d=wire_diam);
+       translate([0, 0, start_z - 4]) sphere(d=wire_diam);
         translate([cylinder_diam/2, 0, start_z]) sphere(d=wire_diam);
         rotate([0, 0, -10]) 
             translate([cylinder_diam/2, 0, start_z + wh*(10/(360*calc_turns))]) 
@@ -101,7 +97,8 @@ difference() {
 
 // --- True 3D Sweep Engine ---
 module true_3d_v_groove(h, turns, d, depth) {
-    total_steps = round(turns * groove_steps_per_turn);
+    steps_per_turn = 50; 
+    total_steps = round(turns * steps_per_turn);
     dz = h / total_steps;
     da = -360 * turns / total_steps;
 
@@ -118,5 +115,5 @@ module cutter_pos(z, a, d, depth) {
     rotate([0, 0, a])
     translate([d/2 - depth, 0, 0]) 
     rotate([0, 90, 0])
-    cylinder(r1=0, r2=depth + 1, h=depth + 1, $fn=16);
+    cylinder(r1=0.01, r2=depth + 1, h=depth + 1, $fn=16);
 }
