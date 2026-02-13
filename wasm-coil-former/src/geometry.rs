@@ -2,6 +2,12 @@
 //!
 //! Translates the parametric OpenSCAD / CadQuery model into pure Rust.
 //! All units are millimetres.
+//!
+//! The body is built as a single integrated mesh: a hollow cylinder whose
+//! outer radius varies to form the friction-rib profile and the helical
+//! V-groove.  This avoids the CSG boolean operations the OpenSCAD version
+//! relies on and produces a clean manifold mesh for both the 3-D preview
+//! and the downloadable STL.
 
 use std::f64::consts::PI;
 
@@ -39,6 +45,7 @@ pub struct CoilDerived {
     pub cylinder_diam: f64,
     pub cylinder_r: f64,
     pub center_bore_r: f64,
+    #[allow(dead_code)]
     pub r_wire: f64,
     pub calc_turns: f64,
     pub winding_height: f64,
@@ -47,6 +54,7 @@ pub struct CoilDerived {
     pub end_z: f64,
     pub chamfer_h: f64,
     pub v_depth: f64,
+    pub pitch: f64,
 }
 
 impl CoilDerived {
@@ -81,6 +89,7 @@ impl CoilDerived {
             end_z,
             chamfer_h,
             v_depth,
+            pitch: p.pitch,
         }
     }
 }
@@ -105,6 +114,7 @@ impl TriMesh {
     }
 
     /// Merge another mesh into this one.
+    #[allow(dead_code)]
     pub fn append(&mut self, other: &TriMesh) {
         let base = (self.positions.len() / 3) as u32;
         self.positions.extend_from_slice(&other.positions);
@@ -118,18 +128,14 @@ impl TriMesh {
     }
 }
 
-// ─── Cylinder generation ───────────────────────────────────────────
+// ─── Cylinder generation (kept for tests / utility) ────────────────
 
 /// Closed cylinder along the Z axis centred at origin.
+#[allow(dead_code)]
 pub fn make_cylinder(radius: f64, height: f64, segments: u32) -> TriMesh {
     let mut mesh = TriMesh::new();
     let segs = segments as usize;
 
-    // --- vertices ---
-    // bottom ring: 0..segs
-    // top ring:    segs..2*segs
-    // bottom cap centre: 2*segs
-    // top cap centre:    2*segs+1
     for ring in 0..2 {
         let z = if ring == 0 { 0.0 } else { height };
         for i in 0..segs {
@@ -153,55 +159,15 @@ pub fn make_cylinder(radius: f64, height: f64, segments: u32) -> TriMesh {
         let t0 = (segs + i) as u32;
         let t1 = (segs + next) as u32;
 
-        // side quad (2 tris)
-        mesh.indices.extend_from_slice(&[b0, t0, b1]);
-        mesh.indices.extend_from_slice(&[b1, t0, t1]);
+        // side quad – outward-facing normals
+        mesh.indices.extend_from_slice(&[b0, b1, t0]);
+        mesh.indices.extend_from_slice(&[b1, t1, t0]);
 
-        // bottom cap (winding: CW from below → CCW from outside)
-        mesh.indices.extend_from_slice(&[bot_center, b1, b0]);
+        // bottom cap
+        mesh.indices.extend_from_slice(&[bot_center, b0, b1]);
 
         // top cap
-        mesh.indices.extend_from_slice(&[top_center, t0, t1]);
-    }
-
-    mesh
-}
-
-/// Conical frustum (truncated cone) along Z axis.
-pub fn make_frustum(r_bottom: f64, r_top: f64, height: f64, segments: u32) -> TriMesh {
-    let mut mesh = TriMesh::new();
-    let segs = segments as usize;
-
-    for ring in 0..2 {
-        let (r, z) = if ring == 0 {
-            (r_bottom, 0.0)
-        } else {
-            (r_top, height)
-        };
-        for i in 0..segs {
-            let angle = 2.0 * PI * (i as f64) / (segs as f64);
-            mesh.positions.push((r * angle.cos()) as f32);
-            mesh.positions.push((r * angle.sin()) as f32);
-            mesh.positions.push(z as f32);
-        }
-    }
-    mesh.positions.extend_from_slice(&[0.0, 0.0, 0.0]);
-    mesh.positions.extend_from_slice(&[0.0, 0.0, height as f32]);
-
-    let bot_center = (2 * segs) as u32;
-    let top_center = (2 * segs + 1) as u32;
-
-    for i in 0..segs {
-        let next = (i + 1) % segs;
-        let b0 = i as u32;
-        let b1 = next as u32;
-        let t0 = (segs + i) as u32;
-        let t1 = (segs + next) as u32;
-
-        mesh.indices.extend_from_slice(&[b0, t0, b1]);
-        mesh.indices.extend_from_slice(&[b1, t0, t1]);
-        mesh.indices.extend_from_slice(&[bot_center, b1, b0]);
-        mesh.indices.extend_from_slice(&[top_center, t0, t1]);
+        mesh.indices.extend_from_slice(&[top_center, t1, t0]);
     }
 
     mesh
@@ -209,6 +175,7 @@ pub fn make_frustum(r_bottom: f64, r_top: f64, height: f64, segments: u32) -> Tr
 
 // ─── Transform helpers ─────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn translate(mesh: &mut TriMesh, dx: f32, dy: f32, dz: f32) {
     for i in (0..mesh.positions.len()).step_by(3) {
         mesh.positions[i] += dx;
@@ -217,6 +184,7 @@ pub fn translate(mesh: &mut TriMesh, dx: f32, dy: f32, dz: f32) {
     }
 }
 
+#[allow(dead_code)]
 pub fn rotate_z(mesh: &mut TriMesh, angle_rad: f32) {
     let (s, c) = (angle_rad.sin(), angle_rad.cos());
     for i in (0..mesh.positions.len()).step_by(3) {
@@ -230,147 +198,229 @@ pub fn rotate_z(mesh: &mut TriMesh, angle_rad: f32) {
 // ─── Full coil former assembly ─────────────────────────────────────
 
 const SEGMENTS: u32 = 64;
-const HELIX_STEPS_PER_TURN: u32 = 60;
 
 /// Build the complete coil former mesh from parameters.
+///
+/// Produces a single integrated hollow cylinder whose outer surface
+/// incorporates the friction-rib profile and helical V-groove.
 pub fn build_coil_former(params: &CoilParams) -> (TriMesh, CoilDerived) {
     let d = CoilDerived::from_params(params);
-
-    let mut mesh = TriMesh::new();
-
-    // 1. Main body cylinder
-    let body = make_cylinder(d.cylinder_r, d.total_height, SEGMENTS);
-    mesh.append(&body);
-
-    // 2. Friction ribs
-    let bottom_rib = build_friction_rib(d.cylinder_r, d.rib_diam / 2.0, d.chamfer_h, 2.0);
-    let top_rib = build_friction_rib(
-        d.cylinder_r,
-        d.rib_diam / 2.0,
-        d.chamfer_h,
-        d.total_height - 8.0,
-    );
-    mesh.append(&bottom_rib);
-    mesh.append(&top_rib);
-
-    // 3. Center bore (rendered as a thin inner cylinder for visual representation)
-    let bore = make_cylinder(d.center_bore_r, d.total_height, SEGMENTS);
-    mesh.append(&bore);
-
-    // 4. V-groove helix (rendered as tube following helical path)
-    let groove = build_helix_groove(&d);
-    mesh.append(&groove);
-
-    // 5. Entry/exit tunnels
-    let entry = build_tunnel(d.cylinder_r, d.r_wire, d.start_z, 0.0);
-    let exit_angle = -2.0 * PI * d.calc_turns;
-    let exit = build_tunnel(d.cylinder_r, d.r_wire, d.end_z, exit_angle);
-    mesh.append(&entry);
-    mesh.append(&exit);
-
+    let mesh = build_body(&d);
     (mesh, d)
 }
 
-/// Build a single friction rib (chamfer-up, flat, chamfer-down).
-fn build_friction_rib(cyl_r: f64, rib_r: f64, chamfer_h: f64, base_z: f64) -> TriMesh {
+// ─── Integrated body mesh ──────────────────────────────────────────
+
+/// Compute the set of z-levels used to tessellate the body.
+fn compute_z_levels(d: &CoilDerived) -> Vec<f64> {
+    // Base resolution: ~4 levels per mm
+    let n_base = ((d.total_height * 4.0).ceil() as usize).max(200);
+
+    let mut levels: Vec<f64> = (0..=n_base)
+        .map(|i| d.total_height * (i as f64) / (n_base as f64))
+        .collect();
+
+    // Key transition points for crisp rib edges
+    let bot_start = 2.0;
+    let bot_chamfer_end = bot_start + d.chamfer_h;
+    let bot_flat_end = bot_chamfer_end + 2.0;
+    let bot_end = bot_flat_end + d.chamfer_h;
+
+    let top_start = d.total_height - 8.0;
+    let top_chamfer_end = top_start + d.chamfer_h;
+    let top_flat_end = top_chamfer_end + 2.0;
+    let top_end = top_flat_end + d.chamfer_h;
+
+    for z in [
+        bot_start,
+        bot_chamfer_end,
+        bot_flat_end,
+        bot_end,
+        top_start,
+        top_chamfer_end,
+        top_flat_end,
+        top_end,
+        d.start_z,
+        d.end_z,
+    ] {
+        if z >= 0.0 && z <= d.total_height {
+            levels.push(z);
+        }
+    }
+
+    levels.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    levels.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+    levels
+}
+
+/// Outer radius at height `z` (rib profile, no groove).
+fn rib_radius_at(d: &CoilDerived, z: f64) -> f64 {
+    let cyl_r = d.cylinder_r;
+    let rib_r = d.rib_diam / 2.0;
+
+    // Bottom rib
+    let bs = 2.0;
+    let bc = bs + d.chamfer_h;
+    let bf = bc + 2.0;
+    let be = bf + d.chamfer_h;
+
+    if z >= bs && z <= be {
+        return if z <= bc {
+            lerp(cyl_r, rib_r, (z - bs) / d.chamfer_h)
+        } else if z <= bf {
+            rib_r
+        } else {
+            lerp(rib_r, cyl_r, (z - bf) / d.chamfer_h)
+        };
+    }
+
+    // Top rib
+    let ts = d.total_height - 8.0;
+    let tc = ts + d.chamfer_h;
+    let tf = tc + 2.0;
+    let te = tf + d.chamfer_h;
+
+    if z >= ts && z <= te {
+        return if z <= tc {
+            lerp(cyl_r, rib_r, (z - ts) / d.chamfer_h)
+        } else if z <= tf {
+            rib_r
+        } else {
+            lerp(rib_r, cyl_r, (z - tf) / d.chamfer_h)
+        };
+    }
+
+    cyl_r
+}
+
+/// V-groove depth at a surface point `(z, theta)`.
+///
+/// Uses the perpendicular distance from the point to the nearest helix
+/// pass to determine whether the point lies inside the groove.
+fn groove_depth_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
+    if z < d.start_z || z > d.end_z {
+        return 0.0;
+    }
+
+    // On the unwrapped cylinder surface the helix lines are straight and
+    // spaced one pitch apart.  At angle θ the nearest groove centre is at
+    // z = start_z + (−θ/(2π) + n)·pitch for some integer n.
+    // Rearranging: (z − start_z + θ·pitch/(2π)) / pitch = n.
+    let q = (z - d.start_z) / d.pitch + theta / (2.0 * PI);
+    let z_mod = q.rem_euclid(1.0); // fractional part in [0, 1)
+    let dz_frac = if z_mod <= 0.5 { z_mod } else { 1.0 - z_mod };
+    let dz = dz_frac * d.pitch; // z-distance to nearest groove centre
+
+    // Correct for helix angle to get true perpendicular distance
+    let circ = 2.0 * PI * d.cylinder_r;
+    let cos_alpha = circ / (circ * circ + d.pitch * d.pitch).sqrt();
+    let d_perp = dz * cos_alpha;
+
+    // 90° V-groove profile: linear ramp, depth = v_depth at centre
+    if d_perp < d.v_depth {
+        d.v_depth - d_perp
+    } else {
+        0.0
+    }
+}
+
+/// Combined outer radius at `(z, theta)` including rib profile and groove.
+fn radius_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
+    let base_r = rib_radius_at(d, z);
+    let groove = groove_depth_at(d, z, theta);
+    (base_r - groove).max(d.center_bore_r + 0.1)
+}
+
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + t.clamp(0.0, 1.0) * (b - a)
+}
+
+/// Build the complete body as a single hollow mesh.
+///
+/// Outer surface: cylinder with rib profile and V-groove displacement.
+/// Inner surface: constant centre-bore radius.
+/// End caps: annular rings connecting outer ↔ inner.
+fn build_body(d: &CoilDerived) -> TriMesh {
+    let n_around = SEGMENTS as usize;
+    let z_levels = compute_z_levels(d);
+    let n_z = z_levels.len();
+    let inner_r = d.center_bore_r;
+
     let mut mesh = TriMesh::new();
 
-    // chamfer up
-    let mut c1 = make_frustum(cyl_r, rib_r, chamfer_h, SEGMENTS);
-    translate(&mut c1, 0.0, 0.0, base_z as f32);
-    mesh.append(&c1);
+    // ── Outer surface vertices: [0 .. n_z * n_around) ──
+    for &z in &z_levels {
+        for i in 0..n_around {
+            let theta = 2.0 * PI * (i as f64) / (n_around as f64);
+            let r = radius_at(d, z, theta);
+            mesh.positions.push((r * theta.cos()) as f32);
+            mesh.positions.push((r * theta.sin()) as f32);
+            mesh.positions.push(z as f32);
+        }
+    }
 
-    // flat band
-    let mut flat = make_cylinder(rib_r, 2.0, SEGMENTS);
-    translate(&mut flat, 0.0, 0.0, (base_z + chamfer_h) as f32);
-    mesh.append(&flat);
+    // ── Inner surface vertices: [n_z*n_around .. 2*n_z*n_around) ──
+    let inner_offset = n_z * n_around;
+    for &z in &z_levels {
+        for i in 0..n_around {
+            let theta = 2.0 * PI * (i as f64) / (n_around as f64);
+            mesh.positions.push((inner_r * theta.cos()) as f32);
+            mesh.positions.push((inner_r * theta.sin()) as f32);
+            mesh.positions.push(z as f32);
+        }
+    }
 
-    // chamfer down
-    let mut c2 = make_frustum(rib_r, cyl_r, chamfer_h, SEGMENTS);
-    translate(&mut c2, 0.0, 0.0, (base_z + chamfer_h + 2.0) as f32);
-    mesh.append(&c2);
+    // ── Outer side triangles (outward-facing normals) ──
+    for j in 0..(n_z - 1) {
+        for i in 0..n_around {
+            let ni = (i + 1) % n_around;
+            let v00 = (j * n_around + i) as u32;
+            let v01 = (j * n_around + ni) as u32;
+            let v10 = ((j + 1) * n_around + i) as u32;
+            let v11 = ((j + 1) * n_around + ni) as u32;
+            mesh.indices.extend_from_slice(&[v00, v01, v10]);
+            mesh.indices.extend_from_slice(&[v01, v11, v10]);
+        }
+    }
 
-    mesh
-}
+    // ── Inner side triangles (inward-facing normals) ──
+    for j in 0..(n_z - 1) {
+        for i in 0..n_around {
+            let ni = (i + 1) % n_around;
+            let v00 = (inner_offset + j * n_around + i) as u32;
+            let v01 = (inner_offset + j * n_around + ni) as u32;
+            let v10 = (inner_offset + (j + 1) * n_around + i) as u32;
+            let v11 = (inner_offset + (j + 1) * n_around + ni) as u32;
+            mesh.indices.extend_from_slice(&[v00, v10, v01]);
+            mesh.indices.extend_from_slice(&[v01, v10, v11]);
+        }
+    }
 
-/// Build the V-groove helix as a sequence of small oriented wedges along the
-/// helical path.  For the WASM preview we approximate with small cones.
-fn build_helix_groove(d: &CoilDerived) -> TriMesh {
-    let total_steps = (d.calc_turns * HELIX_STEPS_PER_TURN as f64).round() as u32;
-    let total_steps = total_steps.max(1);
-    let dz = d.winding_height / total_steps as f64;
-    let da = -2.0 * PI * d.calc_turns / total_steps as f64;
+    // ── Bottom annular cap (normal pointing down, −z) ──
+    for i in 0..n_around {
+        let ni = (i + 1) % n_around;
+        let o0 = i as u32;
+        let o1 = ni as u32;
+        let i0 = (inner_offset + i) as u32;
+        let i1 = (inner_offset + ni) as u32;
+        mesh.indices.extend_from_slice(&[o0, i0, o1]);
+        mesh.indices.extend_from_slice(&[o1, i0, i1]);
+    }
 
-    let mut mesh = TriMesh::new();
-
-    // Each segment: a small cone positioned on the helix path cut into the surface.
-    let seg_len = {
-        let arc = d.cylinder_r * da.abs();
-        (arc * arc + dz * dz).sqrt()
-    };
-
-    for i in 0..total_steps {
-        let z0 = d.start_z + (i as f64) * dz;
-        let a0 = (i as f64) * da;
-        let z1 = d.start_z + ((i + 1) as f64) * dz;
-        let a1 = ((i + 1) as f64) * da;
-
-        // Mid-point on helix surface
-        let mid_z = ((z0 + z1) / 2.0) as f32;
-        let mid_a = ((a0 + a1) / 2.0) as f32;
-
-        // Small groove marker: a thin frustum pointing inward
-        let mut seg = make_frustum(0.01, d.v_depth + 0.5, seg_len, 8);
-
-        // Orient along the helix tangent (approximate: rotate about Y then Z)
-        let pitch_angle = (dz / (d.cylinder_r * da.abs())).atan() as f32;
-        rotate_y(&mut seg, -pitch_angle);
-
-        // Position on cylinder surface
-        translate(&mut seg, (d.cylinder_r - d.v_depth) as f32, 0.0, 0.0);
-        rotate_z(&mut seg, mid_a);
-        translate(&mut seg, 0.0, 0.0, mid_z);
-
-        mesh.append(&seg);
+    // ── Top annular cap (normal pointing up, +z) ──
+    let outer_top = (n_z - 1) * n_around;
+    let inner_top = inner_offset + (n_z - 1) * n_around;
+    for i in 0..n_around {
+        let ni = (i + 1) % n_around;
+        let o0 = (outer_top + i) as u32;
+        let o1 = (outer_top + ni) as u32;
+        let i0 = (inner_top + i) as u32;
+        let i1 = (inner_top + ni) as u32;
+        mesh.indices.extend_from_slice(&[o0, o1, i0]);
+        mesh.indices.extend_from_slice(&[o1, i1, i0]);
     }
 
     mesh
-}
-
-/// Build a radial tunnel cylinder for wire entry/exit.
-fn build_tunnel(cyl_r: f64, r_wire: f64, z: f64, angle: f64) -> TriMesh {
-    let length = cyl_r * 2.0 + 4.0;
-    let mut tun = make_cylinder(r_wire, length, 12);
-
-    // Rotate so the cylinder lies along X
-    rotate_y_mesh(&mut tun);
-
-    // Centre it so it passes through the axis
-    translate(&mut tun, -(length as f32 / 2.0), 0.0, z as f32);
-    rotate_z(&mut tun, angle as f32);
-
-    tun
-}
-
-/// Rotate all vertices 90 degrees about Y (Z -> X, X -> -Z).
-fn rotate_y_mesh(mesh: &mut TriMesh) {
-    for i in (0..mesh.positions.len()).step_by(3) {
-        let x = mesh.positions[i];
-        let z = mesh.positions[i + 2];
-        mesh.positions[i] = z;
-        mesh.positions[i + 2] = -x;
-    }
-}
-
-/// Rotate all vertices about Y by an arbitrary angle.
-fn rotate_y(mesh: &mut TriMesh, angle_rad: f32) {
-    let (s, c) = (angle_rad.sin(), angle_rad.cos());
-    for i in (0..mesh.positions.len()).step_by(3) {
-        let x = mesh.positions[i];
-        let z = mesh.positions[i + 2];
-        mesh.positions[i] = x * c + z * s;
-        mesh.positions[i + 2] = -x * s + z * c;
-    }
 }
 
 // ─── STL export ────────────────────────────────────────────────────
@@ -476,5 +526,41 @@ mod tests {
         let stl = to_binary_stl(&mesh);
         let tri_count = mesh.indices.len() / 3;
         assert_eq!(stl.len(), 80 + 4 + tri_count * 50);
+    }
+
+    #[test]
+    fn test_groove_depth_zero_outside_winding() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        assert_eq!(groove_depth_at(&d, 0.0, 0.0), 0.0);
+        assert_eq!(groove_depth_at(&d, d.total_height, 0.0), 0.0);
+    }
+
+    #[test]
+    fn test_groove_depth_max_on_helix() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        // On the helix centreline at z = start_z, theta = 0
+        let depth = groove_depth_at(&d, d.start_z, 0.0);
+        assert!((depth - d.v_depth).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_rib_radius_at_cylinder() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        // Outside rib zones → cylinder_r
+        assert!((rib_radius_at(&d, 0.0) - d.cylinder_r).abs() < 1e-6);
+        assert!((rib_radius_at(&d, d.total_height) - d.cylinder_r).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_rib_radius_at_peak() {
+        let p = CoilParams::default();
+        let d = CoilDerived::from_params(&p);
+        let rib_r = d.rib_diam / 2.0;
+        // Middle of bottom rib flat band
+        let z_mid = 2.0 + d.chamfer_h + 1.0;
+        assert!((rib_radius_at(&d, z_mid) - rib_r).abs() < 1e-6);
     }
 }

@@ -119,3 +119,27 @@ jobs:
           name: coil-former-dist
           path: wasm-coil-former/dist/
           retention-days: 14
+
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: build-wasm
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: wasm-coil-former/wrangler.toml
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coil-former-dist
+          path: wasm-coil-former/dist
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: wasm-coil-former
+          command: deploy

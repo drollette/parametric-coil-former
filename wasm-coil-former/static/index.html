@@ -54,6 +54,12 @@
 
     header h1 span { color: var(--highlight); }
 
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .version-badge {
       font-size: 0.75rem;
       background: var(--accent);
@@ -61,6 +67,19 @@
       border-radius: 12px;
       color: var(--text-dim);
     }
+
+    .toggle-btn {
+      display: none;
+      background: var(--accent);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    .toggle-btn:hover { background: #1a4a80; }
 
     /* Sidebar controls */
     .sidebar {
@@ -229,13 +248,31 @@
       justify-content: space-between;
     }
 
-    /* Responsive */
+    /* Responsive: collapsible top panel */
     @media (max-width: 768px) {
       .app {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto 1fr auto;
       }
-      .sidebar { max-height: 40vh; }
+
+      .toggle-btn { display: inline-block; }
+
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        max-height: 55vh;
+        overflow-y: auto;
+        transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+      }
+
+      .sidebar.collapsed {
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        opacity: 0;
+        overflow: hidden;
+        border-bottom: none;
+      }
     }
   </style>
 </head>
@@ -243,10 +280,13 @@
   <div class="app">
     <header>
       <h1><span>W7HAK</span> Coil Former</h1>
-      <span class="version-badge" id="version-badge">loading…</span>
+      <div class="header-right">
+        <span class="version-badge" id="version-badge">loading…</span>
+        <button class="toggle-btn" id="toggle-panel">Parameters</button>
+      </div>
     </header>
 
-    <aside class="sidebar">
+    <aside class="sidebar collapsed" id="sidebar">
       <h2>Parameters</h2>
 
       <div class="control-group">
@@ -319,6 +359,17 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ── Toggle panel on mobile ────────────────────────────────
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('toggle-panel');
+    toggleBtn.addEventListener('click', () => {
+      sidebar.classList.toggle('collapsed');
+      toggleBtn.textContent = sidebar.classList.contains('collapsed')
+        ? 'Parameters' : 'Close';
+      // Trigger a resize so the viewport recalculates
+      setTimeout(resize, 320);
+    });
 
     // ── WASM initialisation ──────────────────────────────────
     import init, { generate_coil, export_stl, compute_info, version } from './wasm_coil_former.js';
