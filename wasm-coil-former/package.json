@@ -1,0 +1,17 @@
+{
+  "name": "wasm-coil-former",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Parametric coil former for ham radio – WASM plugin hosted on Cloudflare",
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --out-dir pkg --release",
+    "build:worker": "cp worker.js dist/worker.js",
+    "build:static": "mkdir -p dist && cp static/* dist/ && cp pkg/wasm_coil_former_bg.wasm dist/ && cp pkg/wasm_coil_former.js dist/",
+    "build": "npm run build:wasm && npm run build:static",
+    "dev": "npx wrangler pages dev dist",
+    "deploy": "npx wrangler pages deploy dist --project-name=coil-former"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}

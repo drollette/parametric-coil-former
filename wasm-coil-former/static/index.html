@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>W7HAK Coil Former</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --panel: #16213e;
+      --accent: #0f3460;
+      --highlight: #e94560;
+      --text: #eaeaea;
+      --text-dim: #a0a0b0;
+      --input-bg: #0f3460;
+      --border: #2a2a4a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+    }
+
+    /* Header */
+    header {
+      grid-column: 1 / -1;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    header h1 span { color: var(--highlight); }
+
+    .version-badge {
+      font-size: 0.75rem;
+      background: var(--accent);
+      padding: 2px 10px;
+      border-radius: 12px;
+      color: var(--text-dim);
+    }
+
+    /* Sidebar controls */
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .sidebar h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+
+    .control-group {
+      margin-bottom: 18px;
+    }
+
+    .control-group label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+    }
+
+    .control-group label .unit {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+
+    .control-group input[type="range"] {
+      width: 100%;
+      accent-color: var(--highlight);
+      margin-bottom: 4px;
+    }
+
+    .control-group .value-display {
+      text-align: right;
+      font-size: 0.8rem;
+      color: var(--highlight);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Info panel */
+    .info-panel {
+      background: var(--accent);
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+
+    .info-panel h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .info-row:last-child { border-bottom: none; }
+    .info-row .info-val { color: var(--highlight); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      margin-top: 10px;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--highlight);
+      color: white;
+    }
+
+    .btn-primary:hover { background: #d63851; }
+
+    .btn-secondary {
+      background: var(--accent);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { background: #1a4a80; }
+
+    /* 3D viewport */
+    .viewport {
+      position: relative;
+      background: #0d0d1a;
+      overflow: hidden;
+    }
+
+    #three-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .viewport-hint {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(13, 13, 26, 0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .loading-overlay.hidden { display: none; }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--highlight);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-overlay p {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: var(--text-dim);
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Footer */
+    footer {
+      grid-column: 1 / -1;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding: 8px 24px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 1fr auto;
+      }
+      .sidebar { max-height: 40vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1><span>W7HAK</span> Coil Former</h1>
+      <span class="version-badge" id="version-badge">loading…</span>
+    </header>
+
+    <aside class="sidebar">
+      <h2>Parameters</h2>
+
+      <div class="control-group">
+        <label>Wire Length <span class="unit">mm</span></label>
+        <input type="range" id="wire_len" min="50" max="2000" step="1" value="668">
+        <div class="value-display" id="wire_len_val">668</div>
+      </div>
+
+      <div class="control-group">
+        <label>Wire Diameter <span class="unit">mm</span></label>
+        <input type="range" id="wire_diam" min="0.5" max="6.0" step="0.1" value="3.2">
+        <div class="value-display" id="wire_diam_val">3.2</div>
+      </div>
+
+      <div class="control-group">
+        <label>PVC Inner Diameter <span class="unit">mm</span></label>
+        <input type="range" id="pvc_inner_diam" min="10" max="80" step="0.1" value="22.3">
+        <div class="value-display" id="pvc_inner_diam_val">22.3</div>
+      </div>
+
+      <div class="control-group">
+        <label>Pitch <span class="unit">mm</span></label>
+        <input type="range" id="pitch" min="2.0" max="25.0" step="0.1" value="8.9">
+        <div class="value-display" id="pitch_val">8.9</div>
+      </div>
+
+      <div class="control-group">
+        <label>Rib Clearance <span class="unit">mm</span></label>
+        <input type="range" id="rib_clearance" min="2" max="20" step="0.5" value="8">
+        <div class="value-display" id="rib_clearance_val">8.0</div>
+      </div>
+
+      <div class="info-panel">
+        <h3>Computed Values</h3>
+        <div class="info-row"><span>Turns</span>       <span class="info-val" id="info-turns">–</span></div>
+        <div class="info-row"><span>Coil Height</span> <span class="info-val" id="info-coil-h">–</span></div>
+        <div class="info-row"><span>Total Height</span><span class="info-val" id="info-total-h">–</span></div>
+        <div class="info-row"><span>Former Diam</span> <span class="info-val" id="info-cyl-d">–</span></div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-download">Download STL</button>
+      <button class="btn btn-secondary" id="btn-reset">Reset Defaults</button>
+    </aside>
+
+    <main class="viewport">
+      <canvas id="three-canvas"></canvas>
+      <div class="viewport-hint">Drag to rotate &middot; Scroll to zoom &middot; Right-drag to pan</div>
+      <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <p>Loading WASM engine…</p>
+      </div>
+    </main>
+
+    <footer>
+      <span>Parametric Coil Former &middot; MIT License</span>
+      <span>Built with Rust + WebAssembly for <a href="https://w7hak.com" style="color:var(--highlight);">w7hak.com</a></span>
+    </footer>
+  </div>
+
+  <!-- Three.js from CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ── WASM initialisation ──────────────────────────────────
+    import init, { generate_coil, export_stl, compute_info, version } from './wasm_coil_former.js';
+
+    let wasmReady = false;
+
+    async function boot() {
+      await init();
+      wasmReady = true;
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('version-badge').textContent = `v${version()}`;
+      rebuildCoil();
+    }
+
+    boot().catch(err => {
+      console.error('WASM init failed:', err);
+      document.querySelector('#loading p').textContent = 'Failed to load WASM – see console.';
+    });
+
+    // ── Three.js scene ───────────────────────────────────────
+    const canvas = document.getElementById('three-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x0d0d1a);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+    camera.position.set(40, 30, 50);
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir1.position.set(50, 80, 60);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0x8888ff, 0.3);
+    dir2.position.set(-40, -20, -30);
+    scene.add(dir2);
+
+    // Grid helper
+    const grid = new THREE.GridHelper(100, 20, 0x2a2a4a, 0x1a1a2e);
+    grid.rotation.x = Math.PI / 2;
+    scene.add(grid);
+
+    let coilMesh = null;
+
+    function resize() {
+      const { clientWidth: w, clientHeight: h } = canvas.parentElement;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ── Coil rebuild ─────────────────────────────────────────
+    function getParams() {
+      return {
+        wire_len:       parseFloat(document.getElementById('wire_len').value),
+        wire_diam:      parseFloat(document.getElementById('wire_diam').value),
+        pvc_inner_diam: parseFloat(document.getElementById('pvc_inner_diam').value),
+        pitch:          parseFloat(document.getElementById('pitch').value),
+        rib_clearance:  parseFloat(document.getElementById('rib_clearance').value),
+      };
+    }
+
+    function rebuildCoil() {
+      if (!wasmReady) return;
+      const p = getParams();
+
+      const json = generate_coil(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance);
+      const data = JSON.parse(json);
+
+      if (data.error) {
+        console.error('Coil gen error:', data.error);
+        return;
+      }
+
+      // Update info panel
+      document.getElementById('info-turns').textContent  = data.turns.toFixed(2);
+      document.getElementById('info-coil-h').textContent  = data.coil_height.toFixed(1) + ' mm';
+      document.getElementById('info-total-h').textContent = data.total_height.toFixed(1) + ' mm';
+      document.getElementById('info-cyl-d').textContent   = data.cylinder_diam.toFixed(1) + ' mm';
+
+      // Build Three.js geometry
+      if (coilMesh) {
+        scene.remove(coilMesh);
+        coilMesh.geometry.dispose();
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+      geom.setIndex(data.indices);
+      geom.computeVertexNormals();
+
+      const mat = new THREE.MeshPhongMaterial({
+        color: 0x4488cc,
+        specular: 0x222244,
+        shininess: 60,
+        side: THREE.DoubleSide,
+        flatShading: false,
+      });
+
+      coilMesh = new THREE.Mesh(geom, mat);
+      // Centre the model vertically
+      coilMesh.position.y = 0;
+      scene.add(coilMesh);
+    }
+
+    // ── Slider wiring ────────────────────────────────────────
+    const sliders = ['wire_len', 'wire_diam', 'pvc_inner_diam', 'pitch', 'rib_clearance'];
+    let rebuildTimeout = null;
+
+    sliders.forEach(id => {
+      const el = document.getElementById(id);
+      const valEl = document.getElementById(id + '_val');
+
+      el.addEventListener('input', () => {
+        valEl.textContent = parseFloat(el.value).toFixed(
+          id === 'wire_len' ? 0 : 1
+        );
+        // Debounce mesh rebuild (info is cheap, mesh is heavier)
+        if (wasmReady) {
+          const p = getParams();
+          const info = JSON.parse(compute_info(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance));
+          document.getElementById('info-turns').textContent  = info.turns.toFixed(2);
+          document.getElementById('info-coil-h').textContent  = info.coil_height.toFixed(1) + ' mm';
+          document.getElementById('info-total-h').textContent = info.total_height.toFixed(1) + ' mm';
+          document.getElementById('info-cyl-d').textContent   = info.cylinder_diam.toFixed(1) + ' mm';
+        }
+        clearTimeout(rebuildTimeout);
+        rebuildTimeout = setTimeout(rebuildCoil, 150);
+      });
+    });
+
+    // ── STL download ─────────────────────────────────────────
+    document.getElementById('btn-download').addEventListener('click', () => {
+      if (!wasmReady) return;
+      const p = getParams();
+      const stlBytes = export_stl(p.wire_len, p.wire_diam, p.pvc_inner_diam, p.pitch, p.rib_clearance);
+      const blob = new Blob([stlBytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `coil_former_${p.wire_len}mm.stl`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // ── Reset defaults ───────────────────────────────────────
+    const defaults = { wire_len: 668, wire_diam: 3.2, pvc_inner_diam: 22.3, pitch: 8.9, rib_clearance: 8 };
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      Object.entries(defaults).forEach(([id, val]) => {
+        document.getElementById(id).value = val;
+        document.getElementById(id + '_val').textContent =
+          id === 'wire_len' ? val.toFixed(0) : val.toFixed(1);
+      });
+      rebuildCoil();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Semver bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Pre-release label (e.g. "beta", "rc.1"). Leave empty for stable.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump version & tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Read current version
+        id: current
+        run: |
+          VERSION=$(grep '^version' wasm-coil-former/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current version: $VERSION"
+
+      - name: Compute next version
+        id: next
+        run: |
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${{ steps.current.outputs.version }}"
+          # Strip any existing pre-release suffix from PATCH
+          PATCH="${PATCH%%-*}"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          if [ -n "${{ inputs.prerelease }}" ]; then
+            NEXT="${NEXT}-${{ inputs.prerelease }}"
+          fi
+
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT"
+
+      - name: Update Cargo.toml
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ steps.next.outputs.version }}\"/" \
+            wasm-coil-former/Cargo.toml
+
+      - name: Update package.json
+        run: |
+          sed -i "s/\"version\": \".*\"/\"version\": \"${{ steps.next.outputs.version }}\"/" \
+            wasm-coil-former/package.json
+
+      - name: Commit & tag
+        run: |
+          git add wasm-coil-former/Cargo.toml wasm-coil-former/package.json
+          git commit -m "chore: bump version to ${{ steps.next.outputs.version }}"
+          git tag "v${{ steps.next.outputs.version }}"
+          git push origin HEAD --tags
+
+      - name: Summary
+        run: |
+          echo "### Version bumped" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **From:** ${{ steps.current.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **To:** ${{ steps.next.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag:** v${{ steps.next.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"

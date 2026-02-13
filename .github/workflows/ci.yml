@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'wasm-coil-former/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'wasm-coil-former/**'
+      - '.github/workflows/ci.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Rust Check & Clippy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wasm-coil-former
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            wasm-coil-former/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check
+        run: cargo check --target wasm32-unknown-unknown
+
+      - name: Clippy
+        run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
+
+      - name: Format check
+        run: cargo fmt -- --check
+
+  test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wasm-coil-former
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            wasm-coil-former/target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+
+      - name: Run tests
+        run: cargo test --verbose
+
+  build-wasm:
+    name: Build WASM
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wasm-coil-former
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            wasm-coil-former/target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-wasm-
+
+      - name: Build WASM package
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Assemble dist
+        run: |
+          mkdir -p dist
+          cp static/* dist/
+          cp pkg/wasm_coil_former_bg.wasm dist/
+          cp pkg/wasm_coil_former.js dist/
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coil-former-dist
+          path: wasm-coil-former/dist/
+          retention-days: 14

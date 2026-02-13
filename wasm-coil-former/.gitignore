@@ -1,0 +1,16 @@
+# Rust
+/target/
+Cargo.lock
+
+# wasm-pack output
+/pkg/
+
+# Node
+/node_modules/
+
+# Build output
+/dist/
+
+# Cloudflare
+.wrangler/
+.dev.vars
