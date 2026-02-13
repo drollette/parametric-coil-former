@@ -1,0 +1,8 @@
+name: coil-former
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cadquery
+  - jupyter-cadquery
+  - ipympl
