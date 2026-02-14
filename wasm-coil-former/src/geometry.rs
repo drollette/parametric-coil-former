@@ -60,6 +60,8 @@ pub struct CoilDerived {
     pub entry_angle: f64,
     /// Exit-hole angle, normalised to [0, 2π).
     pub exit_angle: f64,
+    /// Channel extension distance from groove to bore (wall thickness + margin).
+    pub channel_extension: f64,
 }
 
 impl CoilDerived {
@@ -89,6 +91,11 @@ impl CoilDerived {
         let entry_angle = 0.0;
         let exit_angle = ((-2.0 * PI * calc_turns) % (2.0 * PI) + 2.0 * PI) % (2.0 * PI);
 
+        // Channel extension: extends from groove surface to the center of the bore
+        // This is the wall thickness (cylinder_r - center_bore_r) plus half the bore diameter
+        let wall_thickness = cylinder_r - center_bore_r;
+        let channel_extension = wall_thickness + center_bore_r;
+
         Self {
             rib_diam,
             cylinder_diam,
@@ -105,6 +112,7 @@ impl CoilDerived {
             pitch: p.pitch,
             entry_angle,
             exit_angle,
+            channel_extension,
         }
     }
 }
@@ -206,7 +214,7 @@ pub fn rotate_z(mesh: &mut TriMesh, angle_rad: f32) {
 
 // ─── Full coil former assembly ─────────────────────────────────────
 
-const SEGMENTS: u32 = 64;
+const SEGMENTS: u32 = 128;
 
 /// Build the complete coil former mesh from parameters.
 pub fn build_coil_former(params: &CoilParams) -> (TriMesh, CoilDerived) {
@@ -237,6 +245,11 @@ fn compute_z_levels(d: &CoilDerived) -> Vec<f64> {
     let top_flat_end = top_chamfer_end + 2.0;
     let top_end = top_flat_end + d.chamfer_h;
 
+    // Channel boundary z-levels for clean tunnel edges
+    let z_fillet = d.r_wire;
+    let entry_z_bore = d.start_z - d.channel_extension;
+    let exit_z_bore = d.end_z + d.channel_extension;
+
     for z in [
         bot_start,
         bot_chamfer_end,
@@ -248,6 +261,14 @@ fn compute_z_levels(d: &CoilDerived) -> Vec<f64> {
         top_end,
         d.start_z,
         d.end_z,
+        // Entry channel boundaries
+        entry_z_bore - z_fillet,
+        entry_z_bore,
+        d.start_z + z_fillet,
+        // Exit channel boundaries
+        d.end_z - z_fillet,
+        exit_z_bore,
+        exit_z_bore + z_fillet,
     ] {
         if z >= 0.0 && z <= d.total_height {
             levels.push(z);
@@ -321,7 +342,7 @@ fn groove_depth_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
     }
 }
 
-// ─── Wire entry/exit holes ─────────────────────────────────────────
+// ─── Wire entry/exit channels ─────────────────────────────────────
 
 /// Shortest angular distance on a circle, result in [0, π].
 fn angle_distance(a: f64, b: f64) -> f64 {
@@ -335,49 +356,98 @@ fn angle_distance(a: f64, b: f64) -> f64 {
     d.abs()
 }
 
-/// Euclidean distance on the cylinder surface between two (z, θ) points.
-fn surface_dist(d: &CoilDerived, z1: f64, theta1: f64, z2: f64, theta2: f64) -> f64 {
-    let dz = z1 - z2;
-    let arc = angle_distance(theta1, theta2) * d.cylinder_r;
-    (dz * dz + arc * arc).sqrt()
+/// Cubic smooth-step interpolation for clean edge transitions.
+fn smooth_step(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
-/// Blend factor for wire entry/exit holes.
+/// Channel blend factor for a single wire entry or exit channel.
 ///
-/// Returns 1.0 inside the hole, smooth cosine taper through the chamfer
-/// zone, and 0.0 outside.  When > 0 the outer radius is blended toward
-/// the centre-bore radius.
-fn hole_factor_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
-    let hole_r = d.r_wire + 0.1; // slight clearance around wire
-    let chamfer = d.r_wire * 0.8; // chamfer width
+/// Creates a clean rectangular channel through the former wall with
+/// smooth filleted edges, connecting the groove surface to the center
+/// bore.  The channel has uniform angular width (sized for the wire)
+/// and well-defined z boundaries, producing a slot-like opening rather
+/// than the conical dimple of the previous point-distance approach.
+fn single_channel_factor(
+    d: &CoilDerived,
+    z: f64,
+    theta: f64,
+    channel_angle: f64,
+    z_groove: f64,
+    z_bore: f64,
+) -> f64 {
+    // Angular half-width: sized for wire to pass through with clearance
+    let half_angle = (d.r_wire * 1.2) / d.cylinder_r;
+    let fillet_angle = half_angle * 0.5;
 
-    let entry_dist = surface_dist(d, z, theta, d.start_z, d.entry_angle);
-    let exit_dist = surface_dist(d, z, theta, d.end_z, d.exit_angle);
-    let min_dist = entry_dist.min(exit_dist);
+    // Fillet extent in the z direction
+    let z_fillet = d.r_wire;
 
-    if min_dist <= hole_r {
+    // 1. Angular proximity to channel center
+    let da = angle_distance(theta, channel_angle);
+    let angle_f = if da <= half_angle {
         1.0
-    } else if min_dist < hole_r + chamfer {
-        let t = (min_dist - hole_r) / chamfer;
-        // Smooth cosine blend from 1 → 0
-        0.5 * (1.0 + (PI * t).cos())
+    } else if da <= half_angle + fillet_angle {
+        smooth_step(1.0 - (da - half_angle) / fillet_angle)
     } else {
-        0.0
-    }
+        return 0.0; // Outside channel angular range
+    };
+
+    // 2. Z proximity to channel body
+    let z_min = z_groove.min(z_bore);
+    let z_max = z_groove.max(z_bore);
+
+    let z_f = if z >= z_min && z <= z_max {
+        1.0
+    } else if z < z_min && z >= z_min - z_fillet {
+        smooth_step(1.0 - (z_min - z) / z_fillet)
+    } else if z > z_max && z <= z_max + z_fillet {
+        smooth_step(1.0 - (z - z_max) / z_fillet)
+    } else {
+        return 0.0; // Outside channel z range
+    };
+
+    angle_f * z_f
+}
+
+/// Blend factor for wire entry/exit channels.
+///
+/// Returns 0.0 outside channels, up to 1.0 inside.  When > 0, the
+/// outer radius is blended toward the bore radius to create a clean
+/// slot through the wall.
+fn channel_factor_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
+    let entry = single_channel_factor(
+        d,
+        z,
+        theta,
+        d.entry_angle,
+        d.start_z,
+        d.start_z - d.channel_extension,
+    );
+    let exit = single_channel_factor(
+        d,
+        z,
+        theta,
+        d.exit_angle,
+        d.end_z,
+        d.end_z + d.channel_extension,
+    );
+    entry.max(exit)
 }
 
 // ─── Combined radius ───────────────────────────────────────────────
 
 /// Combined outer radius at `(z, theta)` including rib profile, groove,
-/// and wire holes with chamfer.
+/// and wire entry/exit channels.
 fn radius_at(d: &CoilDerived, z: f64, theta: f64) -> f64 {
     let base_r = rib_radius_at(d, z);
     let groove = groove_depth_at(d, z, theta);
     let r_grooved = base_r - groove;
 
-    let hole = hole_factor_at(d, z, theta);
-    if hole > 0.0 {
-        lerp(r_grooved, d.center_bore_r, hole).max(d.center_bore_r)
+    let channel = channel_factor_at(d, z, theta);
+    if channel > 0.0 {
+        lerp(r_grooved, d.center_bore_r, channel).max(d.center_bore_r)
     } else {
         r_grooved.max(d.center_bore_r + 0.1)
     }
@@ -618,20 +688,20 @@ mod tests {
     }
 
     #[test]
-    fn test_hole_factor_at_entry() {
+    fn test_channel_factor_at_entry() {
         let p = CoilParams::default();
         let d = CoilDerived::from_params(&p);
-        // Exactly at entry point → factor = 1.0
-        let f = hole_factor_at(&d, d.start_z, d.entry_angle);
+        // Exactly at entry channel center → factor = 1.0
+        let f = channel_factor_at(&d, d.start_z, d.entry_angle);
         assert!((f - 1.0).abs() < 1e-6);
     }
 
     #[test]
-    fn test_hole_factor_far_away() {
+    fn test_channel_factor_far_away() {
         let p = CoilParams::default();
         let d = CoilDerived::from_params(&p);
         // Middle of coil, opposite side → factor ≈ 0
-        let f = hole_factor_at(&d, d.total_height / 2.0, PI);
+        let f = channel_factor_at(&d, d.total_height / 2.0, PI);
         assert!(f < 0.01);
     }
 }
