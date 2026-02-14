@@ -59,6 +59,7 @@ pub struct CoilDerived {
     /// Entry-hole angle (always 0).
     pub entry_angle: f64,
     /// Exit-hole angle, normalised to [0, 2π).
+    #[allow(dead_code)]
     pub exit_angle: f64,
     /// Channel extension distance from groove to bore (wall thickness + margin).
     pub channel_extension: f64,
@@ -328,6 +329,7 @@ struct PathPoint {
     /// Position in 3D space (x, y, z)
     position: [f64; 3],
     /// Unit tangent vector (direction of wire travel)
+    #[allow(dead_code)]
     tangent: [f64; 3],
     /// Distance parameter along path (0 = entry, total_path_length = exit)
     #[allow(dead_code)]
@@ -390,140 +392,193 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
+/// Compute the helix tangent vector at a given turn fraction `t` ∈ [0, 1].
+///
+/// The helix is parameterised as:
+///   θ(t) = entry_angle − 2π·turns·t
+///   pos   = (R cos θ, R sin θ, start_z + t·winding_height)
+///
+/// Returns the *unnormalised* derivative so the caller can normalise or
+/// scale it as needed for Bézier handle length.
+fn helix_tangent(d: &CoilDerived, t: f64) -> [f64; 3] {
+    let theta = d.entry_angle - 2.0 * PI * d.calc_turns * t;
+    let omega = -2.0 * PI * d.calc_turns; // dθ/dt
+    [
+        -d.cylinder_r * theta.sin() * omega,
+        d.cylinder_r * theta.cos() * omega,
+        d.winding_height,
+    ]
+}
+
+/// Helix position at turn fraction `t` ∈ [0, 1].
+fn helix_pos(d: &CoilDerived, t: f64) -> [f64; 3] {
+    let theta = d.entry_angle - 2.0 * PI * d.calc_turns * t;
+    [
+        d.cylinder_r * theta.cos(),
+        d.cylinder_r * theta.sin(),
+        d.start_z + t * d.winding_height,
+    ]
+}
+
+/// Scale a vector by a scalar.
+fn vec_scale(v: [f64; 3], s: f64) -> [f64; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+/// Add two vectors.
+fn vec_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+/// Subtract two vectors (a - b).
+fn vec_sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+/// Length of a vector.
+fn vec_len(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
 /// Generate the complete continuous wire path from entry to exit.
 ///
 /// The path consists of 5 segments:
-/// 1. Vertical rise through bore (bottom to entry transition start)
-/// 2. Bézier transition from bore to groove surface (entry elbow)
-/// 3. Helical winding along groove
-/// 4. Bézier transition from groove surface to bore (exit elbow)
-/// 5. Vertical descent through bore (exit transition end to top)
+/// 1. Vertical bore (bottom → transition start)
+/// 2. Bézier elbow  (bore → helix start, tangent-matched to helix)
+/// 3. Helical winding
+/// 4. Bézier elbow  (helix end → bore, tangent-matched to helix)
+/// 5. Vertical bore  (transition end → top)
+///
+/// Key fixes vs. the previous version:
+/// - Bézier endpoints sit 0.5 mm *outside* the former surface so the
+///   subtraction cutter overshoots and leaves no ghost faces.
+/// - Control points are derived from the actual helix tangent at t=0 / t=1
+///   so the groove and hole meet seamlessly (no angle mismatch).
 fn generate_wire_path(d: &CoilDerived) -> Vec<PathPoint> {
     let mut path = Vec::new();
 
-    // Transition arc length (quarter circle approximation)
-    let transition_length = PI * d.r_wire / 2.0;
+    // ── Overcut margin: extend cutter 0.5 mm past the outer surface ──
+    let overcut = 0.5_f64;
 
-    // Helical path length
-    let circ = 2.0 * PI * d.cylinder_r;
-    let helix_length = (circ * circ + d.pitch * d.pitch).sqrt() * d.calc_turns;
+    // Helix tangent at start (t = 0) and end (t = 1)
+    let helix_tan_start = normalize(helix_tangent(d, 0.0)); // direction wire exits bore
+    let helix_tan_end = normalize(helix_tangent(d, 1.0)); // direction wire enters bore
 
-    // ──── SEGMENT 1: Vertical rise in bore (entry) ────
-    let entry_bore_start_z = d.start_z - d.channel_extension;
-    let entry_transition_start_z = d.start_z - transition_length;
+    // Helix positions at start / end, pushed 0.5 mm outward for overcut
+    let helix_start = helix_pos(d, 0.0);
+    let helix_end = helix_pos(d, 1.0);
 
-    let n_bore_entry =
-        (((entry_transition_start_z - entry_bore_start_z) / 0.5).ceil() as usize).max(1);
+    // Radial outward direction at helix start / end (unit)
+    let radial_start = normalize([helix_start[0], helix_start[1], 0.0]);
+    let radial_end = normalize([helix_end[0], helix_end[1], 0.0]);
+
+    // Overcut surface points (slightly outside the former)
+    let surface_start = vec_add(helix_start, vec_scale(radial_start, overcut));
+    let surface_end = vec_add(helix_end, vec_scale(radial_end, overcut));
+
+    // Handle length for Bézier curves – controls how "wide" the elbow is.
+    // Use the wall thickness (cylinder_r − bore_r) so the arc clears
+    // the wall comfortably.
+    let wall = d.cylinder_r - d.center_bore_r;
+    let handle_len = wall * 0.6;
+
+    // ──── SEGMENT 1: Vertical bore (entry) ────
+    // Start below the winding zone so the slot exits the bottom face.
+    let bore_entry_z = d.start_z - d.channel_extension;
+    // The bore-side end of the transition (where curve begins)
+    let bore_entry_top_z = helix_start[2];
+    let bore_entry_top = [0.0, 0.0, bore_entry_top_z];
+
+    let seg1_len = (bore_entry_top_z - bore_entry_z).abs();
+    let n_bore_entry = ((seg1_len / 0.3).ceil() as usize).max(2);
     for i in 0..=n_bore_entry {
         let t = i as f64 / n_bore_entry as f64;
-        let z = entry_bore_start_z + t * (entry_transition_start_z - entry_bore_start_z);
+        let z = bore_entry_z + t * (bore_entry_top_z - bore_entry_z);
         path.push(PathPoint {
             position: [0.0, 0.0, z],
             tangent: [0.0, 0.0, 1.0],
-            distance: t * (entry_transition_start_z - entry_bore_start_z),
+            distance: t * seg1_len,
         });
     }
+    let mut dist_so_far = seg1_len;
 
-    let dist_so_far = entry_transition_start_z - entry_bore_start_z;
+    // ──── SEGMENT 2: Bézier elbow (bore → helix start) ────
+    // P0 = bore top,  tangent = +Z
+    // P3 = overcut helix start,  tangent = helix_tan_start
+    //
+    // P1 = P0 + handle_len * (0,0,1)        — continues upward from bore
+    // P2 = P3 − handle_len * helix_tan_start — approaches helix smoothly
+    let p0 = bore_entry_top;
+    let p3 = surface_start;
+    let p1 = vec_add(p0, [0.0, 0.0, handle_len]);
+    let p2 = vec_sub(p3, vec_scale(helix_tan_start, handle_len));
 
-    // ──── SEGMENT 2: Bézier transition (bore → groove entry) ────
-    // Entry point: bore at z = start_z - transition_length
-    // Exit point: groove surface at (cylinder_r, 0, start_z)
-    let p0 = [0.0, 0.0, entry_transition_start_z];
-    let p3 = [
-        d.cylinder_r * d.entry_angle.cos(),
-        d.cylinder_r * d.entry_angle.sin(),
-        d.start_z,
-    ];
-
-    // Control points for smooth 90° elbow
-    let p1 = [0.0, 0.0, d.start_z]; // Vertical rise continues
-    let p2 = [
-        d.cylinder_r * d.entry_angle.cos(),
-        d.cylinder_r * d.entry_angle.sin(),
-        d.start_z,
-    ]; // Radial exit
-
-    let n_transition = ((transition_length / 0.5).ceil() as usize).max(1);
-    for i in 1..=n_transition {
-        let t = i as f64 / n_transition as f64;
-        let pos = cubic_bezier(p0, p1, p2, p3, t);
-        let tan = cubic_bezier_tangent(p0, p1, p2, p3, t);
+    let elbow_len = vec_len(vec_sub(p3, p0)) * 1.2; // rough arc length
+    let n_elbow = ((elbow_len / 0.3).ceil() as usize).max(8);
+    for i in 1..=n_elbow {
+        let t = i as f64 / n_elbow as f64;
         path.push(PathPoint {
-            position: pos,
-            tangent: tan,
-            distance: dist_so_far + t * transition_length,
+            position: cubic_bezier(p0, p1, p2, p3, t),
+            tangent: cubic_bezier_tangent(p0, p1, p2, p3, t),
+            distance: dist_so_far + t * elbow_len,
         });
     }
-
-    let dist_so_far = dist_so_far + transition_length;
+    dist_so_far += elbow_len;
 
     // ──── SEGMENT 3: Helical winding ────
-    let n_helix = ((helix_length / 0.5).ceil() as usize).max(1);
+    // Sample densely (every ~0.3 mm of arc) for a smooth groove.
+    let circ = 2.0 * PI * d.cylinder_r;
+    let helix_arc = (circ * circ + d.pitch * d.pitch).sqrt() * d.calc_turns;
+    let n_helix = ((helix_arc / 0.3).ceil() as usize).max(64);
     for i in 1..=n_helix {
         let t = i as f64 / n_helix as f64;
-        let z = d.start_z + t * d.winding_height;
-        let theta = d.entry_angle - 2.0 * PI * d.calc_turns * t;
-
-        let x = d.cylinder_r * theta.cos();
-        let y = d.cylinder_r * theta.sin();
-
-        // Tangent to helix: blend of radial and axial components
-        let dtheta = -2.0 * PI * d.calc_turns / n_helix as f64;
-        let dx = -d.cylinder_r * theta.sin() * dtheta;
-        let dy = d.cylinder_r * theta.cos() * dtheta;
-        let dz = d.winding_height / n_helix as f64;
-
+        let pos = helix_pos(d, t);
+        let tan = normalize(helix_tangent(d, t));
+        // Push the path point outward by the overcut so the cutter
+        // extends through the outer wall.
+        let radial = normalize([pos[0], pos[1], 0.0]);
         path.push(PathPoint {
-            position: [x, y, z],
-            tangent: normalize([dx, dy, dz]),
-            distance: dist_so_far + t * helix_length,
-        });
-    }
-
-    let dist_so_far = dist_so_far + helix_length;
-
-    // ──── SEGMENT 4: Bézier transition (groove exit → bore) ────
-    let exit_transition_end_z = d.end_z + transition_length;
-
-    let p0_exit = [
-        d.cylinder_r * d.exit_angle.cos(),
-        d.cylinder_r * d.exit_angle.sin(),
-        d.end_z,
-    ];
-    let p3_exit = [0.0, 0.0, exit_transition_end_z];
-
-    let p1_exit = [
-        d.cylinder_r * d.exit_angle.cos(),
-        d.cylinder_r * d.exit_angle.sin(),
-        d.end_z,
-    ];
-    let p2_exit = [0.0, 0.0, d.end_z];
-
-    for i in 1..=n_transition {
-        let t = i as f64 / n_transition as f64;
-        let pos = cubic_bezier(p0_exit, p1_exit, p2_exit, p3_exit, t);
-        let tan = cubic_bezier_tangent(p0_exit, p1_exit, p2_exit, p3_exit, t);
-        path.push(PathPoint {
-            position: pos,
+            position: vec_add(pos, vec_scale(radial, overcut)),
             tangent: tan,
-            distance: dist_so_far + t * transition_length,
+            distance: dist_so_far + t * helix_arc,
         });
     }
+    dist_so_far += helix_arc;
 
-    let dist_so_far = dist_so_far + transition_length;
+    // ──── SEGMENT 4: Bézier elbow (helix end → bore) ────
+    // P0 = overcut helix end,  tangent = helix_tan_end
+    // P3 = bore point,         tangent = +Z (upward into bore)
+    let bore_exit_bottom_z = helix_end[2];
+    let bore_exit_bottom = [0.0, 0.0, bore_exit_bottom_z];
 
-    // ──── SEGMENT 5: Vertical descent in bore (exit) ────
-    let exit_bore_end_z = d.end_z + d.channel_extension;
+    let q0 = surface_end;
+    let q3 = bore_exit_bottom;
+    let q1 = vec_add(q0, vec_scale(helix_tan_end, handle_len));
+    let q2 = vec_sub(q3, [0.0, 0.0, handle_len]); // approach bore from above
 
-    let n_bore_exit = (((exit_bore_end_z - exit_transition_end_z) / 0.5).ceil() as usize).max(1);
+    let elbow_len2 = vec_len(vec_sub(q3, q0)) * 1.2;
+    let n_elbow2 = ((elbow_len2 / 0.3).ceil() as usize).max(8);
+    for i in 1..=n_elbow2 {
+        let t = i as f64 / n_elbow2 as f64;
+        path.push(PathPoint {
+            position: cubic_bezier(q0, q1, q2, q3, t),
+            tangent: cubic_bezier_tangent(q0, q1, q2, q3, t),
+            distance: dist_so_far + t * elbow_len2,
+        });
+    }
+    dist_so_far += elbow_len2;
+
+    // ──── SEGMENT 5: Vertical bore (exit) ────
+    let bore_exit_z = d.end_z + d.channel_extension;
+    let seg5_len = (bore_exit_z - bore_exit_bottom_z).abs();
+    let n_bore_exit = ((seg5_len / 0.3).ceil() as usize).max(2);
     for i in 1..=n_bore_exit {
         let t = i as f64 / n_bore_exit as f64;
-        let z = exit_transition_end_z + t * (exit_bore_end_z - exit_transition_end_z);
+        let z = bore_exit_bottom_z + t * (bore_exit_z - bore_exit_bottom_z);
         path.push(PathPoint {
             position: [0.0, 0.0, z],
             tangent: [0.0, 0.0, 1.0],
-            distance: dist_so_far + t * (exit_bore_end_z - exit_transition_end_z),
+            distance: dist_so_far + t * seg5_len,
         });
     }
 
@@ -706,91 +761,7 @@ fn build_body(d: &CoilDerived) -> TriMesh {
         mesh.indices.extend_from_slice(&[o1, i1, i0]);
     }
 
-    // Smooth vertex normals at wire path transitions to prevent pinched shading
-    smooth_wire_transition_normals(&mut mesh, d, &wire_path);
-
     mesh
-}
-
-/// Smooth vertex normals near wire path transitions to eliminate pinched shading.
-///
-/// Identifies vertices near the continuous wire path and adjusts their positions
-/// slightly to create smooth normal transitions, preventing the harsh shading
-/// artifacts visible in the original renders.
-fn smooth_wire_transition_normals(mesh: &mut TriMesh, d: &CoilDerived, wire_path: &[PathPoint]) {
-    let n_verts = mesh.positions.len() / 3;
-    let transition_threshold = d.r_wire * 1.5;
-
-    // For each vertex, check if it's near a transition zone
-    for i in 0..n_verts {
-        let x = mesh.positions[i * 3] as f64;
-        let y = mesh.positions[i * 3 + 1] as f64;
-        let z = mesh.positions[i * 3 + 2] as f64;
-
-        let point = [x, y, z];
-        let dist = distance_to_wire_path(d, wire_path, point).abs();
-
-        // If vertex is close to wire path surface, apply smoothing
-        if dist < transition_threshold {
-            // Find nearest path point
-            let mut nearest_idx = 0;
-            let mut nearest_dist = f64::INFINITY;
-
-            for (idx, pp) in wire_path.iter().enumerate() {
-                let dx = x - pp.position[0];
-                let dy = y - pp.position[1];
-                let dz = z - pp.position[2];
-                let d = (dx * dx + dy * dy + dz * dz).sqrt();
-
-                if d < nearest_dist {
-                    nearest_dist = d;
-                    nearest_idx = idx;
-                }
-            }
-
-            // Blend factor: 1.0 at path surface, 0.0 at threshold
-            let blend = 1.0 - (dist / transition_threshold).min(1.0);
-
-            if blend > 0.01 {
-                let path_point = &wire_path[nearest_idx];
-
-                // Get surface normal (radial direction from path center)
-                let to_point = [
-                    x - path_point.position[0],
-                    y - path_point.position[1],
-                    z - path_point.position[2],
-                ];
-
-                // Component perpendicular to tangent
-                let tan_proj = dot(to_point, path_point.tangent);
-                let perp = [
-                    to_point[0] - tan_proj * path_point.tangent[0],
-                    to_point[1] - tan_proj * path_point.tangent[1],
-                    to_point[2] - tan_proj * path_point.tangent[2],
-                ];
-
-                let perp_norm = normalize(perp);
-                let target_r = (x * x + y * y).sqrt();
-
-                // Nudge vertex slightly along perpendicular to smooth the surface
-                let nudge = blend * 0.02; // 2% max adjustment
-
-                mesh.positions[i * 3] = (x + nudge * perp_norm[0]) as f32;
-                mesh.positions[i * 3 + 1] = (y + nudge * perp_norm[1]) as f32;
-                mesh.positions[i * 3 + 2] = (z + nudge * perp_norm[2]) as f32;
-
-                // Preserve cylindrical constraint (stay on r = target_r)
-                let new_r = ((mesh.positions[i * 3] * mesh.positions[i * 3])
-                    + (mesh.positions[i * 3 + 1] * mesh.positions[i * 3 + 1]))
-                    .sqrt() as f64;
-                if new_r > 0.01 {
-                    let scale = (target_r / new_r) as f32;
-                    mesh.positions[i * 3] *= scale;
-                    mesh.positions[i * 3 + 1] *= scale;
-                }
-            }
-        }
-    }
 }
 
 // ─── STL export ────────────────────────────────────────────────────
