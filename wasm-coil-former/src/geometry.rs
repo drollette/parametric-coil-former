@@ -320,7 +320,6 @@ fn rib_radius_at(d: &CoilDerived, z: f64) -> f64 {
     cyl_r
 }
 
-
 // ─── Continuous wire path geometry ────────────────────────────────
 
 /// A point along the continuous wire path with position and orientation.
@@ -334,7 +333,6 @@ struct PathPoint {
     #[allow(dead_code)]
     distance: f64,
 }
-
 
 /// Cubic Bézier curve for smooth wire path transitions.
 /// Creates a 90° elbow from vertical bore to horizontal groove surface.
@@ -354,7 +352,13 @@ fn cubic_bezier(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3], p3: [f64; 3], t: f64) 
 }
 
 /// Tangent (derivative) of cubic Bézier curve.
-fn cubic_bezier_tangent(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3], p3: [f64; 3], t: f64) -> [f64; 3] {
+fn cubic_bezier_tangent(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    p2: [f64; 3],
+    p3: [f64; 3],
+    t: f64,
+) -> [f64; 3] {
     let t = t.clamp(0.0, 1.0);
     let s = 1.0 - t;
 
@@ -380,7 +384,6 @@ fn normalize(v: [f64; 3]) -> [f64; 3] {
         [v[0] / len, v[1] / len, v[2] / len]
     }
 }
-
 
 /// Dot product of two 3D vectors.
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
@@ -409,7 +412,8 @@ fn generate_wire_path(d: &CoilDerived) -> Vec<PathPoint> {
     let entry_bore_start_z = d.start_z - d.channel_extension;
     let entry_transition_start_z = d.start_z - transition_length;
 
-    let n_bore_entry = (((entry_transition_start_z - entry_bore_start_z) / 0.5).ceil() as usize).max(1);
+    let n_bore_entry =
+        (((entry_transition_start_z - entry_bore_start_z) / 0.5).ceil() as usize).max(1);
     for i in 0..=n_bore_entry {
         let t = i as f64 / n_bore_entry as f64;
         let z = entry_bore_start_z + t * (entry_transition_start_z - entry_bore_start_z);
@@ -426,11 +430,19 @@ fn generate_wire_path(d: &CoilDerived) -> Vec<PathPoint> {
     // Entry point: bore at z = start_z - transition_length
     // Exit point: groove surface at (cylinder_r, 0, start_z)
     let p0 = [0.0, 0.0, entry_transition_start_z];
-    let p3 = [d.cylinder_r * d.entry_angle.cos(), d.cylinder_r * d.entry_angle.sin(), d.start_z];
+    let p3 = [
+        d.cylinder_r * d.entry_angle.cos(),
+        d.cylinder_r * d.entry_angle.sin(),
+        d.start_z,
+    ];
 
     // Control points for smooth 90° elbow
     let p1 = [0.0, 0.0, d.start_z]; // Vertical rise continues
-    let p2 = [d.cylinder_r * d.entry_angle.cos(), d.cylinder_r * d.entry_angle.sin(), d.start_z]; // Radial exit
+    let p2 = [
+        d.cylinder_r * d.entry_angle.cos(),
+        d.cylinder_r * d.entry_angle.sin(),
+        d.start_z,
+    ]; // Radial exit
 
     let n_transition = ((transition_length / 0.5).ceil() as usize).max(1);
     for i in 1..=n_transition {
@@ -474,10 +486,18 @@ fn generate_wire_path(d: &CoilDerived) -> Vec<PathPoint> {
     // ──── SEGMENT 4: Bézier transition (groove exit → bore) ────
     let exit_transition_end_z = d.end_z + transition_length;
 
-    let p0_exit = [d.cylinder_r * d.exit_angle.cos(), d.cylinder_r * d.exit_angle.sin(), d.end_z];
+    let p0_exit = [
+        d.cylinder_r * d.exit_angle.cos(),
+        d.cylinder_r * d.exit_angle.sin(),
+        d.end_z,
+    ];
     let p3_exit = [0.0, 0.0, exit_transition_end_z];
 
-    let p1_exit = [d.cylinder_r * d.exit_angle.cos(), d.cylinder_r * d.exit_angle.sin(), d.end_z];
+    let p1_exit = [
+        d.cylinder_r * d.exit_angle.cos(),
+        d.cylinder_r * d.exit_angle.sin(),
+        d.end_z,
+    ];
     let p2_exit = [0.0, 0.0, d.end_z];
 
     for i in 1..=n_transition {
@@ -555,7 +575,6 @@ fn distance_to_wire_path(d: &CoilDerived, path: &[PathPoint], point: [f64; 3]) -
 
     min_dist - wire_r
 }
-
 
 // ─── Combined radius ───────────────────────────────────────────────
 
@@ -763,7 +782,7 @@ fn smooth_wire_transition_normals(mesh: &mut TriMesh, d: &CoilDerived, wire_path
                 // Preserve cylindrical constraint (stay on r = target_r)
                 let new_r = ((mesh.positions[i * 3] * mesh.positions[i * 3])
                     + (mesh.positions[i * 3 + 1] * mesh.positions[i * 3 + 1]))
-                .sqrt() as f64;
+                    .sqrt() as f64;
                 if new_r > 0.01 {
                     let scale = (target_r / new_r) as f32;
                     mesh.positions[i * 3] *= scale;
@@ -896,14 +915,29 @@ mod tests {
         assert!(path.len() > 100, "Path has {} points", path.len());
         // First point should be near entry bore start
         let entry_bore_start_z = d.start_z - d.channel_extension;
-        eprintln!("First point z: {}, expected: {}", path[0].position[2], entry_bore_start_z);
-        eprintln!("Last point z: {}, expected: {}", path[path.len() - 1].position[2], d.end_z + d.channel_extension);
-        assert!((path[0].position[2] - entry_bore_start_z).abs() < 1.0,
-                "First z={}, expected={}", path[0].position[2], entry_bore_start_z);
+        eprintln!(
+            "First point z: {}, expected: {}",
+            path[0].position[2], entry_bore_start_z
+        );
+        eprintln!(
+            "Last point z: {}, expected: {}",
+            path[path.len() - 1].position[2],
+            d.end_z + d.channel_extension
+        );
+        assert!(
+            (path[0].position[2] - entry_bore_start_z).abs() < 1.0,
+            "First z={}, expected={}",
+            path[0].position[2],
+            entry_bore_start_z
+        );
         // Last point should be near exit bore end
         let exit_bore_end_z = d.end_z + d.channel_extension;
-        assert!((path[path.len() - 1].position[2] - exit_bore_end_z).abs() < 1.0,
-                "Last z={}, expected={}", path[path.len() - 1].position[2], exit_bore_end_z);
+        assert!(
+            (path[path.len() - 1].position[2] - exit_bore_end_z).abs() < 1.0,
+            "Last z={}, expected={}",
+            path[path.len() - 1].position[2],
+            exit_bore_end_z
+        );
     }
 
     #[test]
