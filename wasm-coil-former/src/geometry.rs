@@ -23,7 +23,7 @@ pub struct CoilParams {
     /// Solid space at top & bottom for friction ribs in mm.
     pub rib_clearance: f64,
     /// Centre bore diameter in mm.  Pass 0 (or negative) for automatic
-    /// sizing (wire_diam + 0.2).
+    /// sizing (equals wire_diam).
     pub center_bore_diam: f64,
 }
 
@@ -72,7 +72,7 @@ impl CoilDerived {
         let center_bore_diam = if p.center_bore_diam > 0.0 {
             p.center_bore_diam
         } else {
-            p.wire_diam + 0.2
+            p.wire_diam
         };
         let center_bore_r = center_bore_diam / 2.0;
         let r_wire = p.wire_diam / 2.0;
@@ -629,7 +629,7 @@ mod tests {
     fn test_auto_bore_diameter() {
         let p = CoilParams::default(); // center_bore_diam = 0 → auto
         let d = CoilDerived::from_params(&p);
-        let expected = (3.2 + 0.2) / 2.0; // (wire_diam + 0.2) / 2
+        let expected = 3.2 / 2.0; // wire_diam / 2
         assert!((d.center_bore_r - expected).abs() < 1e-6);
     }
 
