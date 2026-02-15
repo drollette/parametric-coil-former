@@ -2,6 +2,16 @@ FROM condaforge/mambaforge:latest
 
 WORKDIR /app
 
+# Install system dependencies for OpenCASCADE/CadQuery
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglu1-mesa \
+    libxrender1 \
+    libxcursor1 \
+    libxft2 \
+    libxinerama1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install conda dependencies (CadQuery with OpenCASCADE)
 COPY environment.yml .
 RUN mamba env update -n base -f environment.yml && mamba clean -afy
