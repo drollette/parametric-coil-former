@@ -27,7 +27,7 @@ COPY wasm-coil-former/static/ ./wasm-coil-former/static/
 # Create outputs directory
 RUN mkdir -p outputs
 
-# Expose port
+# Expose port 8001
 EXPOSE 8001
 
 # Run the application
