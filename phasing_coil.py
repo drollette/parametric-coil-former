@@ -11,18 +11,34 @@ import os
 
 # ==========================================
 # CONFIGURATION / VARIABLES SECTION
+# Adjust these parameters to customize the coil former design.
+# Note: Ensure COIL_DIAMETER is less than PVC_ID - WIRE_DIAM for proper clearance.
+# Example: For a 23.5mm PVC ID and 2.7mm wire, max coil diameter should be < 20.8mm.
+# Defaults are set for a 146MHz coil using RG58 wire, but can be modified as needed.
 # ==========================================
-FILENAME      = "phasing_coil_former" # Extension .step is added automatically
-ENABLE_RIBS   = True                  # Toggle friction ribs on/off
-CHAMFER_SIZE  = 1.0                   # Size of chamfer on top/bottom ends
-WIRE_LEN      = 668.0                 # Target wire length in mm
-WIRE_DIAM     = 3.2                   # Core wire diameter
-PVC_ID        = 22.3                  # Inside diameter of PVC pipe
-COIL_DIAMETER = 15.0                  # Desired coil diameter (capped for safety)
-PITCH         = 8.9                   # Vertical distance per turn
-END_BUFFER    = 12.0                  # Space for ribs and wire transitions
-TUNNEL_TOL    = 0.2                   # Diameter clearance for wire tunnels
-OUTPUT_DIR    = "outputs"             # Directory for generated files
+
+# Extension .step is added automatically, so FILENAME should be provided without it.
+FILENAME      = "rg58_phasing_coil_1090MHz"
+# Toggle friction ribs on/off (note: ribs may require a larger coil diameter and end buffer for proper clearance).
+ENABLE_RIBS   = True
+# Size of chamfer on top/bottom ends (set to 0 to disable).
+CHAMFER_SIZE  = 0.5
+# Target wire length in mm (adjust based on actual wire length and desired coil dimensions).
+WIRE_LEN      = 90.83
+# Core wire diameter in mm (adjust based on actual wire gauge and insulation).
+WIRE_DIAM     = 3.5
+# Inside diameter of PVC pipe in mm (adjust based on actual PVC pipe used; common sizes are 23.5mm for 3/4" PVC).
+PVC_ID        = 23.5
+# Desired coil diameter (capped for safety)
+COIL_DIAMETER = 25
+# Vertical distance per turn in mm (adjust based on desired coil pitch; smaller values create a tighter coil).
+PITCH         = 10
+# Space for ribs and wire transitions at the top and bottom of the coil (adjust as needed for clearance).
+END_BUFFER    = 10
+# Diameter clearance for wire tunnels (ensures tunnels are large enough for the wire to pass through without interference).
+TUNNEL_TOL    = 0.2
+# Directory for generated files (will be created if it doesn't exist).
+OUTPUT_DIR    = "outputs"
 # ==========================================
 
 def build_coil_former():

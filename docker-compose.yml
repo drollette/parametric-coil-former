@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  coil-former:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist outputs (optional, for debugging)
+      - ./outputs:/app/outputs
+      # Mount static files for development (hot reload)
+      - ./wasm-coil-former/static:/app/wasm-coil-former/static:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
