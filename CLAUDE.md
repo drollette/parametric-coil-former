@@ -58,6 +58,8 @@ curl -X POST http://localhost:8000/generate \
 - CadQuery uses boolean `.cut()` operations to subtract grooves, tunnels, and bores from the base cylinder.
 - The `wasm-coil-former/` directory name is historical — it previously held a Rust/WASM implementation. The frontend HTML is still served from there.
 
-## CI/CD Note
+## CI/CD
 
-The `.github/workflows/` CI and release workflows are outdated — they target the old Rust/WASM architecture (cargo, clippy, wasm-pack, Cloudflare Workers). They do not apply to the current Python/Docker stack.
+- `ci.yml` — Builds Docker image on push/PR to main/master, runs a smoke test against `POST /generate`.
+- `docker-ghcr.yml` — Builds and pushes Docker image to `ghcr.io` on push to main/master, release publish, or manual dispatch.
+- `release.yml` — Manual workflow dispatch to bump semver, create a git tag, and publish a GitHub Release (which triggers the GHCR push).

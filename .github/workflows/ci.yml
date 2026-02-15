@@ -3,143 +3,51 @@ name: CI
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'wasm-coil-former/**'
-      - '.github/workflows/ci.yml'
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
   pull_request:
     branches: [master, main]
-    paths:
-      - 'wasm-coil-former/**'
-      - '.github/workflows/ci.yml'
-
-env:
-  CARGO_TERM_COLOR: always
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
 
 jobs:
-  check:
-    name: Rust Check & Clippy
+  build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: wasm-coil-former
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
         with:
-          components: clippy, rustfmt
-          targets: wasm32-unknown-unknown
+          context: .
+          push: false
+          load: true
+          tags: parametric-coil-former:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            wasm-coil-former/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Check
-        run: cargo check --target wasm32-unknown-unknown
-
-      - name: Clippy
-        run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
-
-      - name: Format check
-        run: cargo fmt -- --check
-
-  test:
-    name: Rust Tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: wasm-coil-former
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            wasm-coil-former/target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-test-
-
-      - name: Run tests
-        run: cargo test --verbose
-
-  build-wasm:
-    name: Build WASM
-    needs: [check, test]
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: wasm-coil-former
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            wasm-coil-former/target
-          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('wasm-coil-former/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-wasm-
-
-      - name: Build WASM package
-        run: wasm-pack build --target web --out-dir pkg --release
-
-      - name: Assemble dist
+      - name: Smoke test
         run: |
-          mkdir -p dist
-          cp static/* dist/
-          cp pkg/wasm_coil_former_bg.wasm dist/
-          cp pkg/wasm_coil_former.js dist/
-
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coil-former-dist
-          path: wasm-coil-former/dist/
-          retention-days: 14
-
-  deploy:
-    name: Deploy to Cloudflare Workers
-    needs: build-wasm
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: wasm-coil-former/wrangler.toml
-
-      - name: Download dist artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: coil-former-dist
-          path: wasm-coil-former/dist
-
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: wasm-coil-former
-          command: deploy
+          docker run -d --name coil-ci -p 8000:8000 parametric-coil-former:ci
+          echo "Waiting for server to start..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/docs > /dev/null 2>&1; then
+              echo "Server is up"
+              break
+            fi
+            sleep 1
+          done
+          # Verify the generate endpoint responds
+          curl -sf -X POST http://localhost:8000/generate \
+            -H "Content-Type: application/json" \
+            -d '{"wire_len": 90.83, "wire_diam": 3.5, "pvc_id": 23.5}' \
+            -o /dev/null -w "%{http_code}" | grep -q 200
+          echo "Generate endpoint returned 200 OK"
+          docker logs coil-ci
+          docker stop coil-ci
