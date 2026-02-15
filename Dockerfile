@@ -28,7 +28,7 @@ COPY wasm-coil-former/static/ ./wasm-coil-former/static/
 RUN mkdir -p outputs
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8001
 
 # Run the application
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
