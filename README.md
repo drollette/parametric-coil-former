@@ -1,46 +1,96 @@
 # Phasing Coil Former Generator
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/drollette/parametric-coil-former/main)
-
-An OpenSCAD parametric generator for 3D-printable phasing coil formers, designed for HAM radio antenna phasing lines.
+A parametric generator for 3D-printable phasing coil formers, designed for HAM radio antenna phasing lines. Features a web UI with real-time 3D preview and exports to both STL and STEP formats.
 
 ## What It Does
 
-This script generates a cylindrical coil former with a precision V-groove helix that guides wire placement. The former is sized to friction-fit inside standard PVC pipe, making it easy to create weatherproof phasing coils for antenna arrays.
-
-## Parameters
-
-Edit these values at the top of `phasing_coil.scad`:
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `wire_len` | Target wire length in mm (electrical phase length) | 668 |
-| `wire_diam` | Wire diameter in mm (3.2 for RG58 core, 1.6 for bare wire) | 3.2 |
-| `pvc_inner_diam` | Inside diameter of your PVC pipe in mm | 23.3 |
-| `pitch` | Vertical spacing between wraps in mm | 8.9 |
+Generates a cylindrical coil former with a precision V-groove helix that guides wire placement. The former is sized to friction-fit inside standard PVC pipe, making it easy to create weatherproof phasing coils for antenna arrays.
 
 ## Features
 
-- Automatic calculation of turns based on wire length and pitch
-- V-groove sized to cradle 50% of wire diameter
-- Swept entry/exit tunnels for clean wire routing
-- Center bore for wire pass-through
-- Top and bottom ribs for friction fit in PVC pipe
+- **Web Interface**: Real-time 3D preview with adjustable parameters
+- **Dual Export**: Download STL for 3D printing or STEP for CAD editing
+- **V-Groove Helix**: Precision groove sized to cradle wire securely
+- **Straight Wire Tunnels**: Clean entry/exit paths from groove to center bore
+- **Friction Ribs**: Optional ribs for secure fit inside PVC pipe
+- **Safety Capping**: Coil diameter automatically limited for PVC clearance
 
-## Usage
+## Quick Start (Docker)
 
-1. Open `phasing_coil.scad` in OpenSCAD
-2. Adjust the parameters for your wire and PVC pipe
-3. Render (F6) and export as STL
-4. Print with ~20% infill
+```bash
+# Build and run
+docker build -t coil-former .
+docker run -p 8000:8000 coil-former
 
-## Try It Online
+# Or use docker-compose
+docker-compose up --build
+```
 
-Click the Binder badge above or use the link below to launch an interactive Jupyter environment with CadQuery and jupyter-cadquery pre-installed:
+Then open http://localhost:8000
 
-https://mybinder.org/v2/gh/drollette/parametric-coil-former/main
+## Parameters
 
-Once the environment starts, open `viewer_check.ipynb` to verify that CadQuery rendering is working.
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `wire_len` | Target wire length in mm | 90.83 |
+| `wire_diam` | Wire diameter in mm | 3.5 |
+| `pvc_id` | PVC pipe inner diameter in mm | 23.5 |
+| `coil_diameter` | Former diameter (auto-capped for clearance) | 15.0 |
+| `pitch` | Vertical spacing between wraps in mm | 10.0 |
+| `end_buffer` | Space for ribs/transitions at ends in mm | 10.0 |
+| `chamfer_size` | Edge chamfer size in mm | 0.5 |
+| `enable_ribs` | Add friction ribs for PVC grip | true |
+
+## Local Python Usage
+
+For command-line generation without the web UI:
+
+```bash
+# Set up environment
+mamba env create -f environment.yml
+mamba activate coil-former
+
+# Edit parameters in phasing_coil.py, then run
+python phasing_coil.py
+```
+
+Output files are saved to the `outputs/` directory.
+
+## Project Structure
+
+```
+├── backend/
+│   ├── main.py          # FastAPI application
+│   ├── geometry.py      # CadQuery geometry engine
+│   └── schemas.py       # Pydantic models
+├── wasm-coil-former/
+│   └── static/
+│       └── index.html   # Web frontend
+├── phasing_coil.py      # Standalone CLI script
+├── Dockerfile
+├── docker-compose.yml
+├── environment.yml      # Conda dependencies
+└── requirements.txt     # Python dependencies
+```
+
+## API
+
+**POST /generate**
+
+```json
+{
+  "wire_len": 90.83,
+  "wire_diam": 3.5,
+  "pvc_id": 23.5,
+  "coil_diameter": 15.0,
+  "pitch": 10.0,
+  "end_buffer": 10.0,
+  "enable_ribs": true,
+  "chamfer_size": 0.5
+}
+```
+
+Returns URLs to download generated STL and STEP files.
 
 ## License
 
@@ -48,4 +98,4 @@ MIT License - See [LICENSE](LICENSE) file
 
 ## Author
 
-W7HAK
+W7HAK - https://w7hak.com
